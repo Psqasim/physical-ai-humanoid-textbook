@@ -1,15 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styles from './ChatPanelPlaceholder.module.css';
 
 interface ChatPanelPlaceholderProps {
   isOpen?: boolean;
   onClose?: () => void;
+  selectedText?: string;
+  initialMode?: 'whole-book' | 'selection';
 }
 
 type ChatMode = 'whole-book' | 'selection';
 
-export default function ChatPanelPlaceholder({ isOpen = false, onClose }: ChatPanelPlaceholderProps): JSX.Element {
-  const [mode, setMode] = useState<ChatMode>('whole-book');
+export default function ChatPanelPlaceholder({
+  isOpen = false,
+  onClose,
+  selectedText = '',
+  initialMode = 'whole-book'
+}: ChatPanelPlaceholderProps): JSX.Element {
+  const [mode, setMode] = useState<ChatMode>(initialMode);
+
+  // Update mode when initialMode prop changes
+  useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+    }
+  }, [isOpen, initialMode]);
 
   if (!isOpen) {
     return null;
@@ -45,6 +59,15 @@ export default function ChatPanelPlaceholder({ isOpen = false, onClose }: ChatPa
         </div>
 
         <div className={styles.content}>
+          {mode === 'selection' && selectedText && (
+            <div className={styles.selectedTextContext}>
+              <h4 className={styles.contextTitle}>Selected Text:</h4>
+              <div className={styles.contextText}>
+                "{selectedText}"
+              </div>
+            </div>
+          )}
+
           <div className={styles.statusBanner}>
             <div className={styles.statusIcon}>⚠️</div>
             <div className={styles.statusText}>
