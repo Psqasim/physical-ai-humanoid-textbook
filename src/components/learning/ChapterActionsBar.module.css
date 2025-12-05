@@ -1,0 +1,74 @@
+.chapterActionsBar {
+  margin: 1.5rem 0 2rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background-color: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.buttonGroup {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.actionButton {
+  padding: 0.5rem 1.25rem;
+  border: 2px solid var(--ifm-color-primary);
+  background-color: transparent;
+  color: var(--ifm-color-primary);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  min-width: 160px;
+}
+
+.actionButton:hover {
+  background-color: var(--ifm-color-primary);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.actionButton:active {
+  transform: translateY(0);
+}
+
+.alert {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: var(--ifm-color-info-contrast-background);
+  border-left: 4px solid var(--ifm-color-info);
+  border-radius: 4px;
+  color: var(--ifm-color-emphasis-900);
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mobile responsiveness */
+@media screen and (max-width: 768px) {
+  .buttonGroup {
+    flex-direction: column;
+  }
+
+  .actionButton {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .chapterActionsBar {
+    padding: 0.75rem;
+  }
+}

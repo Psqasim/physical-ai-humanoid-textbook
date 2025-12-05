@@ -1,0 +1,77 @@
+.floatingButton {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, var(--ifm-color-primary) 0%, var(--ifm-color-primary-dark) 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  font-size: 1.5rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  z-index: 1000;
+  max-width: 60px;
+  overflow: hidden;
+}
+
+.floatingButton:hover {
+  max-width: 250px;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.floatingButton:active {
+  transform: translateY(0);
+}
+
+.icon {
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.label {
+  white-space: nowrap;
+  font-size: 0.95rem;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Mobile responsiveness */
+@media screen and (max-width: 768px) {
+  .floatingButton {
+    bottom: 1rem;
+    right: 1rem;
+    padding: 0.875rem;
+    font-size: 1.25rem;
+  }
+
+  .floatingButton:hover {
+    max-width: 60px;
+  }
+
+  .label {
+    display: none;
+  }
+}
+
+/* Tablet */
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  .floatingButton {
+    bottom: 1.5rem;
+    right: 1.5rem;
+  }
+}
