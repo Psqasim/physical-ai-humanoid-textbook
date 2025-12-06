@@ -182,26 +182,140 @@ Returns an AI-generated answer with citations from the textbook.
 
 ## Indexing Textbook Content
 
-Before the RAG system can answer questions, you must index the textbook content:
+Before the RAG system can answer questions, you must index the textbook content using the `index_docs.py` script.
+
+### Prerequisites
+
+Ensure you have configured the following environment variables in `.env`:
+- `OPENAI_API_KEY` - Required for generating embeddings
+- `QDRANT_URL` - Required for storing embeddings
+- `QDRANT_API_KEY` - Required for Qdrant authentication
+
+### Usage
+
+**Important**: The indexing script is safe to import (no network calls on import). All OpenAI and Qdrant API calls only happen when the script is executed.
+
+#### Dry Run (Recommended First)
+
+Preview how the content will be chunked without making any API calls:
 
 ```bash
-# Run from the project root
 cd backend
-uv run python scripts/index_docs.py --docs-dir ../docs
-
-# Optional flags
-uv run python scripts/index_docs.py \
-  --docs-dir ../docs \
-  --collection-name textbook_embeddings \
-  --batch-size 50 \
-  --dry-run  # Preview chunks without uploading
+uv run python -m scripts.index_docs --dry-run
 ```
 
-This script will:
+This will:
+- Scan all Markdown/MDX files in `../docs` (relative to backend/)
+- Parse frontmatter and extract metadata
+- Chunk content by headings
+- Print a summary (number of files, chunks generated)
+- **NOT** call OpenAI or Qdrant APIs
+
+#### Test with Limited Files
+
+Index only the first N documents (useful for testing):
+
+```bash
+uv run python -m scripts.index_docs --dry-run --limit 5
+```
+
+#### Full Indexing
+
+Once you've verified the dry run output and configured your API keys:
+
+```bash
+# Index the entire docs corpus
+uv run python -m scripts.index_docs
+```
+
+This will:
 1. Scan all Markdown/MDX files in `../docs`
-2. Chunk content by headings (with fallback to token-based chunking)
-3. Generate embeddings using OpenAI
-4. Upload to Qdrant Cloud with metadata (doc_path, module_id, heading, chunk_index)
+2. Strip YAML frontmatter and extract metadata:
+   - `doc_path` (e.g., `/docs/module-1-ros2/chapter-1-basics`)
+   - `module_id` (1-4, extracted from folder names)
+3. Chunk content using a hybrid strategy:
+   - Primary: Split by headings (## and ###)
+   - Fallback: Split large chunks (>500 tokens) by paragraphs
+4. Extract heading hierarchy for each chunk (e.g., "Chapter 1 > Section 1.1")
+5. Generate embeddings using OpenAI's `text-embedding-3-small`
+6. Store in Qdrant Cloud with metadata:
+   - `id`: `doc_path:chunk_index` (e.g., `/docs/intro:0`)
+   - `vector`: 1536-dimension embedding
+   - `payload`: `{doc_path, module_id, heading, chunk_index, text}`
+
+### Script Options
+
+```bash
+# Get help
+uv run python -m scripts.index_docs --help
+
+# Custom docs directory
+uv run python -m scripts.index_docs --docs-dir /path/to/docs
+
+# Adjust batch size for OpenAI API calls
+uv run python -m scripts.index_docs --batch-size 50
+
+# Limit number of files (for testing)
+uv run python -m scripts.index_docs --limit 10
+
+# Dry run (no API calls)
+uv run python -m scripts.index_docs --dry-run
+```
+
+### Expected Output
+
+```
+============================================================
+Textbook Content Indexing Script
+============================================================
+Docs directory: /path/to/docs
+Found 15 Markdown files
+LIVE MODE: Will call OpenAI and Qdrant APIs
+Ensuring Qdrant collection exists...
+✓ Qdrant collection already exists
+[1/15] Processing: intro.md
+  → Generated 4 chunks with embeddings
+[2/15] Processing: module-1-ros2/chapter-1.md
+  → Generated 12 chunks with embeddings
+...
+============================================================
+Uploading 156 chunks to Qdrant...
+✓ Successfully uploaded all chunks
+============================================================
+Indexing Summary
+============================================================
+Files processed: 15
+Total chunks: 156
+Average chunks per file: 10.4
+✓ Indexing complete!
+============================================================
+```
+
+### Troubleshooting
+
+**Error: "OPENAI_API_KEY is not configured"**
+- Ensure you have set `OPENAI_API_KEY` in your `.env` file
+- Verify the `.env` file is in the `backend/` directory
+
+**Error: "QDRANT_URL is not configured"**
+- Set `QDRANT_URL` and `QDRANT_API_KEY` in your `.env` file
+- Ensure the URL includes `https://` (e.g., `https://xyz.qdrant.io`)
+
+**Error: "Docs directory not found"**
+- The script expects `../docs` relative to `backend/`
+- Use `--docs-dir` to specify a custom path
+
+**Rate Limit Errors**
+- The script uses batch embedding (100 texts per API call)
+- OpenAI has rate limits; if you hit them, wait a few minutes and retry
+- Consider using `--limit` to index a subset first
+
+### Re-indexing
+
+The script is **idempotent** - running it multiple times is safe:
+- Chunks use `doc_path:chunk_index` as unique IDs
+- Qdrant will update existing chunks instead of duplicating
+- Use this to refresh content after updating docs
 
 ## Environment Variables
 
