@@ -42,8 +42,10 @@ Usage:
     )
 """
 
+import asyncio
 from typing import Any, Sequence
 from dataclasses import dataclass
+from uuid import uuid4
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
@@ -57,8 +59,9 @@ from qdrant_client.models import (
 from app.core.config import settings
 
 
-# Global client instance (lazily initialized)
+# Global client instances (lazily initialized)
 _client: AsyncQdrantClient | None = None
+_sync_client: QdrantClient | None = None
 
 
 @dataclass
@@ -143,6 +146,42 @@ def get_qdrant_client() -> AsyncQdrantClient:
             api_key=settings.QDRANT_API_KEY,
         )
     return _client
+
+
+def get_sync_qdrant_client() -> QdrantClient:
+    """
+    Get or create the Qdrant sync client.
+
+    This client is used for search operations, as AsyncQdrantClient
+    does not expose a .search() method in qdrant-client 1.16.1.
+
+    The client is created once and reused for all search operations.
+    Uses the same URL and API key from settings.
+
+    Returns:
+        QdrantClient (sync) instance
+
+    Raises:
+        ValueError: If QDRANT_URL or QDRANT_API_KEY is not configured
+    """
+    global _sync_client
+    if _sync_client is None:
+        if not settings.QDRANT_URL:
+            raise ValueError(
+                "QDRANT_URL is not configured. "
+                "Please set it in your environment variables or .env file."
+            )
+        if not settings.QDRANT_API_KEY:
+            raise ValueError(
+                "QDRANT_API_KEY is not configured. "
+                "Please set it in your environment variables or .env file."
+            )
+
+        _sync_client = QdrantClient(
+            url=settings.QDRANT_URL,
+            api_key=settings.QDRANT_API_KEY,
+        )
+    return _sync_client
 
 
 async def ensure_collection_exists(
@@ -230,18 +269,20 @@ async def upsert_embeddings(
 
     # Convert chunks to Qdrant points
     points = [
-        PointStruct(
-            id=chunk.id,
-            vector=chunk.vector,
-            payload={
-                "doc_path": chunk.doc_path,
-                "module_id": chunk.module_id,
-                "heading": chunk.heading,
-                "chunk_index": chunk.chunk_index,
-                "text": chunk.text,
-            },
-        )
-        for chunk in chunks
+    PointStruct(
+        id=uuid4(),  # valid UUID for Qdrant
+        vector=chunk.vector,
+        payload={
+            # Preserve your meaningful identifier separately:
+            "chunk_id": chunk.id,  # e.g. "/docs/intro:0"
+            "doc_path": chunk.doc_path,
+            "module_id": chunk.module_id,
+            "heading": chunk.heading,
+            "chunk_index": chunk.chunk_index,
+            "text": chunk.text,
+        },
+    )
+    for chunk in chunks
     ]
 
     # Upsert to Qdrant
@@ -261,6 +302,9 @@ async def search_similar(
 ) -> list[SearchResult]:
     """
     Search for similar embeddings in Qdrant.
+
+    Uses sync QdrantClient.query_points() via asyncio.to_thread since
+    AsyncQdrantClient does not expose a .search() method in qdrant-client 1.16.1.
 
     Args:
         query_vector: Query embedding vector
@@ -284,7 +328,7 @@ async def search_similar(
             doc_path="docs/intro.md"
         )
     """
-    client = get_qdrant_client()
+    sync_client = get_sync_qdrant_client()
     collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
 
     # Build filter conditions
@@ -307,27 +351,34 @@ async def search_similar(
     # Build filter object if we have conditions
     query_filter = Filter(must=filter_conditions) if filter_conditions else None
 
-    # Search
-    search_results = await client.search(
+    # Query using sync client via asyncio.to_thread
+    # Note: query_points returns a QueryResponse object with a .points attribute
+    query_response = await asyncio.to_thread(
+        sync_client.query_points,
         collection_name=collection_name,
-        query_vector=query_vector,
-        limit=limit,
+        query=query_vector,
         query_filter=query_filter,
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
         score_threshold=score_threshold,
     )
+
+    # Extract points from response
+    search_results = query_response.points
 
     # Convert to SearchResult objects
     results = [
         SearchResult(
-            id=str(hit.id),
-            score=hit.score,
-            doc_path=hit.payload.get("doc_path", ""),
-            module_id=hit.payload.get("module_id", ""),
-            heading=hit.payload.get("heading", ""),
-            chunk_index=hit.payload.get("chunk_index", 0),
-            text=hit.payload.get("text", ""),
+            id=str(point.id),
+            score=point.score,
+            doc_path=point.payload.get("doc_path", ""),
+            module_id=point.payload.get("module_id", ""),
+            heading=point.payload.get("heading", ""),
+            chunk_index=point.payload.get("chunk_index", 0),
+            text=point.payload.get("text", ""),
         )
-        for hit in search_results
+        for point in search_results
     ]
 
     return results
