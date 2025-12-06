@@ -13,10 +13,12 @@ Example:
         return {"model": settings.OPENAI_CHAT_MODEL}
 """
 
-from typing import Annotated
+from typing import Annotated, AsyncGenerator
 from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings as _get_settings
+from app.db.session import get_db as _get_db
 
 
 def get_settings() -> Settings:
@@ -37,21 +39,14 @@ def get_settings() -> Settings:
     return _get_settings()
 
 
-# Annotated type alias for cleaner dependency injection
-SettingsDep = Annotated[Settings, Depends(get_settings)]
-
-
-# Placeholder dependency functions for future phases
-# These will be implemented in later phases when DB, Qdrant, and OpenAI clients are added
-
-def get_db():
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency to inject database session (AsyncSession).
 
-    Will be implemented in Phase 4 (Neon Postgres Models & Session Management).
+    Implemented in Phase 4 (Neon Postgres Models & Session Management).
 
     Yields:
-        AsyncSession: Database session
+        AsyncSession: Database session that is automatically closed after request
 
     Example:
         from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,10 +57,8 @@ def get_db():
             result = await db.execute(select(ChatSession))
             return result.scalars().all()
     """
-    raise NotImplementedError(
-        "get_db dependency not yet implemented. "
-        "Will be added in Phase 4 (Neon Postgres Models)."
-    )
+    async for session in _get_db():
+        yield session
 
 
 def get_qdrant_client():
@@ -121,6 +114,11 @@ def get_openai_client():
     )
 
 
+# Annotated type aliases for cleaner dependency injection
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+DBSessionDep = Annotated[AsyncSession, Depends(get_db)]
+
+
 # Export all dependencies
 __all__ = [
     "get_settings",
@@ -128,4 +126,5 @@ __all__ = [
     "get_qdrant_client",
     "get_openai_client",
     "SettingsDep",
+    "DBSessionDep",
 ]
