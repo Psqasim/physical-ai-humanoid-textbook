@@ -58,13 +58,27 @@ This will:
 cp .env.example .env
 
 # Edit .env with your actual credentials
-# Required variables:
-# - OPENAI_API_KEY
-# - QDRANT_URL
-# - QDRANT_API_KEY
-# - DATABASE_URL
-# - CORS_ORIGINS
+nano .env  # or use your preferred editor
 ```
+
+**Required environment variables** (set these in `.env`):
+
+- `OPENAI_API_KEY` - Get from https://platform.openai.com/api-keys
+- `QDRANT_URL` - Your Qdrant Cloud cluster URL (e.g., `https://xyz.qdrant.io`)
+- `QDRANT_API_KEY` - Get from Qdrant Cloud dashboard
+- `DATABASE_URL` - Neon Postgres connection string (format: `postgresql+asyncpg://user:password@host/database`)
+- `CORS_ORIGINS` - Comma-separated allowed origins (e.g., `http://localhost:3000,https://yourusername.github.io`)
+
+**Optional variables** (have defaults):
+- `OPENAI_EMBEDDING_MODEL` - Default: `text-embedding-3-small`
+- `OPENAI_CHAT_MODEL` - Default: `gpt-4o-mini`
+- `QDRANT_COLLECTION_NAME` - Default: `textbook_embeddings`
+- `MAX_QUESTION_TOKENS` - Default: `500`
+- `MAX_SELECTION_TOKENS` - Default: `500`
+- `CHUNK_RETRIEVAL_LIMIT` - Default: `10`
+- `LOG_LEVEL` - Default: `INFO` (options: DEBUG, INFO, WARNING, ERROR, CRITICAL)
+
+**Note**: Real API keys and credentials will be added when you're ready to test the RAG functionality. For now, you can use placeholder values to verify the configuration loads correctly.
 
 ## Development
 
