@@ -16,9 +16,13 @@ Example:
 from typing import Annotated, AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from qdrant_client import AsyncQdrantClient
+from openai import AsyncOpenAI
 
 from app.core.config import Settings, get_settings as _get_settings
 from app.db.session import get_db as _get_db
+from app.services.qdrant import get_qdrant_client as _get_qdrant_client
+from app.services.embeddings import get_openai_client as _get_openai_client
 
 
 def get_settings() -> Settings:
@@ -61,62 +65,59 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-def get_qdrant_client():
+def get_qdrant_client() -> AsyncQdrantClient:
     """
     Dependency to inject Qdrant client.
 
-    Will be implemented in Phase 5 (Qdrant Client Configuration).
+    Implemented in Phase 5 (Qdrant Client Configuration).
 
     Returns:
-        QdrantClient: Configured Qdrant client
+        AsyncQdrantClient: Configured Qdrant async client
 
     Example:
-        from qdrant_client import QdrantClient
+        from qdrant_client import AsyncQdrantClient
         from app.core.deps import get_qdrant_client
 
         @router.get("/collections")
-        def list_collections(client: QdrantClient = Depends(get_qdrant_client)):
-            return client.get_collections()
+        async def list_collections(client: AsyncQdrantClient = Depends(get_qdrant_client)):
+            collections = await client.get_collections()
+            return collections
     """
-    raise NotImplementedError(
-        "get_qdrant_client dependency not yet implemented. "
-        "Will be added in Phase 5 (Qdrant Client Configuration)."
-    )
+    return _get_qdrant_client()
 
 
-def get_openai_client():
+def get_openai_client() -> AsyncOpenAI:
     """
     Dependency to inject OpenAI client.
 
-    Will be implemented in Phase 6 (Indexing Pipeline) or Phase 7 (RAG).
+    Implemented in Phase 5/6 (Embeddings Service).
 
     Returns:
-        OpenAI: Configured OpenAI client
+        AsyncOpenAI: Configured OpenAI async client
 
     Example:
-        from openai import OpenAI
+        from openai import AsyncOpenAI
         from app.core.deps import get_openai_client
 
         @router.post("/embed")
-        def create_embedding(
+        async def create_embedding(
             text: str,
-            client: OpenAI = Depends(get_openai_client)
+            client: AsyncOpenAI = Depends(get_openai_client)
         ):
-            response = client.embeddings.create(
+            response = await client.embeddings.create(
                 model="text-embedding-3-small",
                 input=text
             )
             return response.data[0].embedding
     """
-    raise NotImplementedError(
-        "get_openai_client dependency not yet implemented. "
-        "Will be added in Phase 6 (Indexing Pipeline)."
-    )
+    return _get_openai_client()
 
 
 # Annotated type aliases for cleaner dependency injection
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DBSessionDep = Annotated[AsyncSession, Depends(get_db)]
+QdrantClientDep = Annotated[AsyncQdrantClient, Depends(get_qdrant_client)]
+OpenAIClientDep = Annotated[AsyncOpenAI, Depends(get_openai_client)]
 
 
 # Export all dependencies
@@ -127,4 +128,6 @@ __all__ = [
     "get_openai_client",
     "SettingsDep",
     "DBSessionDep",
+    "QdrantClientDep",
+    "OpenAIClientDep",
 ]
