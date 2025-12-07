@@ -32,7 +32,7 @@ const config: Config = {
   },
 
   customFields: {
-    backendUrl: process.env.DOCUSAURUS_BACKEND_URL ?? 'http://localhost:8001',
+    backendUrl: process.env.DOCUSAURUS_BACKEND_URL ?? 'https://physical-ai-humanoid-textbook-production.up.railway.app',
   },
 
   presets: [
