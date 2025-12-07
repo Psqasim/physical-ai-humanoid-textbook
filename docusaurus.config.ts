@@ -31,6 +31,10 @@ const config: Config = {
     locales: ['en'], // Urdu can be added later
   },
 
+  customFields: {
+    backendUrl: process.env.DOCUSAURUS_BACKEND_URL ?? 'http://localhost:8001',
+  },
+
   presets: [
     [
       'classic',

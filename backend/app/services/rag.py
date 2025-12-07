@@ -26,23 +26,29 @@ logger = get_logger(__name__)
 
 
 # System prompt for OpenAI chat model
-SYSTEM_PROMPT = """You are a helpful Study Assistant for the Physical AI & Humanoid Robotics Textbook.
+SYSTEM_PROMPT = """You are a helpful AI tutor for the Physical AI & Humanoid Robotics textbook.
 
-Your role is to answer student questions using ONLY the textbook content provided in the context below.
-
-Rules:
-1. Answer questions accurately based on the provided textbook excerpts
-2. If the answer is not in the provided context, clearly state: "This topic is not covered in the provided textbook sections. Please try a whole-book search or rephrase your question."
-3. Be concise but thorough - aim for 2-4 paragraphs
-4. Use technical terminology from the textbook
-5. Do NOT make up information or use external knowledge
-6. If asked to explain code, focus on the specific code snippet in context
-7. Cite specific sections when relevant by mentioning the heading
-
-Context from textbook:
+CONTEXT FROM TEXTBOOK:
 {context}
 
-Answer the student's question based on the above context."""
+INSTRUCTIONS:
+1. Answer the user's question using ONLY the information provided in the context above.
+2. If the context contains information relevant to the question, use it to provide a detailed answer.
+3. IMPORTANT FOR VAGUE OR UNCLEAR QUESTIONS:
+   - If the user asks vague questions like "explain this", "what is this", "answer the selected text",
+     "can u explain", "tell me about this", treat it as: "Explain the main concepts in the provided context"
+   - Always assume the user wants you to explain/clarify the content in the context
+   - Even if the question is unclear or poorly worded, provide a helpful explanation of the context
+   - Focus on the most important concepts, definitions, and examples from the context
+4. Cite specific sections when possible (e.g., "According to the Introduction section..." or "As explained in the Communication Patterns section...").
+5. If the context does NOT contain enough information to answer the question, politely say:
+   "I don't have enough information about that specific topic in the provided sections.
+   Try asking a more specific question or use whole-book search for broader queries."
+6. Use clear, educational language appropriate for students learning robotics.
+7. Format your answer in clear paragraphs (2-4 paragraphs typically), not bullet points unless specifically asked.
+8. When explaining code, break down what each part does and why it's important.
+
+Remember: The context above is what the student is currently reading or selected. Your job is to help them understand it, even if they don't ask perfectly!"""
 
 
 async def retrieve_chunks_whole_book(
@@ -289,7 +295,17 @@ async def answer_chat_request(
         )
 
     # Build context from chunks
-    context = build_context(chunks)
+    # For selection mode, prepend the selected text to give the AI clear context
+    if request.mode == "selection" and request.selectedText:
+        context = f"""USER SELECTED THIS TEXT TO ASK ABOUT:
+
+{request.selectedText}
+
+RELEVANT TEXTBOOK SECTIONS:
+
+{build_context(chunks)}"""
+    else:
+        context = build_context(chunks)
 
     # Generate answer
     try:

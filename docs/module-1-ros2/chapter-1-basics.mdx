@@ -9,15 +9,385 @@ import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
 
 <ChapterActionsBar chapterTitle="ROS 2 Basics" />
 
-Learn the fundamental building blocks of ROS 2, including nodes, topics, publishers, and subscribers.
+## Introduction
 
-## Topics Covered
+The Robot Operating System 2 (ROS 2) is the backbone of modern robotics development, providing a flexible framework for writing robot software. Think of ROS 2 as the nervous system of a robot—it enables different components to communicate seamlessly, coordinate actions, and share sensor data in real-time. For humanoid robots, this is particularly crucial: a walking robot needs its balance controller to instantly access IMU data, its vision system to communicate with navigation, and its arm controllers to coordinate with grasp planning—all happening simultaneously.
 
-- What is a ROS 2 node?
-- Communication patterns (pub/sub, services, actions)
-- Creating your first ROS 2 package
-- Running nodes and inspecting topics
+ROS 2 represents a complete redesign from its predecessor, ROS 1. While ROS 1 revolutionized academic robotics, it had critical limitations for production systems: it required a central master node (a single point of failure), lacked real-time capabilities, and had poor security. ROS 2 addresses these issues with a decentralized architecture using DDS (Data Distribution Service), built-in security features, and real-time support. This makes ROS 2 suitable not just for research labs, but for commercial humanoid robots operating in unpredictable real-world environments.
 
-## Hands-On Exercise
+In the humanoid robotics domain, ROS 2 powers everything from research platforms like NASA's Valkyrie to commercial robots being deployed in warehouses and hospitals. Its modular architecture allows teams to develop components independently—one engineer can work on the walking controller while another develops the manipulation system—and integrate them seamlessly. This chapter will teach you the fundamental building blocks of ROS 2 that make this coordination possible.
 
-By the end of this chapter, you'll create a simple ROS 2 node that publishes sensor data and subscribes to commands.
+## What is a ROS 2 Node?
+
+A **node** is the fundamental computing unit in ROS 2. Each node is a process that performs a specific task: one node might read camera data, another processes images to detect objects, and a third plans navigation routes. This separation of concerns makes robot systems modular, testable, and maintainable. If your vision node crashes, your motor controllers keep running; if you want to swap out your navigation algorithm, you replace one node without touching the rest.
+
+Every node has a unique name and can communicate with other nodes through various mechanisms (which we'll explore in the next section). Nodes can be written in Python, C++, or other supported languages. Here's a minimal ROS 2 node in Python:
+
+```python
+import rclpy
+from rclpy.node import Node
+
+class MinimalNode(Node):
+    def __init__(self):
+        super().__init__('minimal_node')
+        self.get_logger().info('Minimal node has started!')
+
+        # Create a timer that calls a function every 1 second
+        self.timer = self.create_timer(1.0, self.timer_callback)
+        self.counter = 0
+
+    def timer_callback(self):
+        self.counter += 1
+        self.get_logger().info(f'Timer callback #{self.counter}')
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = MinimalNode()
+
+    try:
+        rclpy.spin(node)  # Keep the node running
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+This node inherits from `Node` and uses `rclpy.spin()` to keep it alive, processing callbacks. The timer demonstrates how nodes handle periodic tasks—essential for control loops in robotics. Real humanoid controllers often run at specific frequencies (e.g., 100Hz for balance control, 30Hz for vision processing).
+
+## Communication Patterns
+
+ROS 2 provides three primary communication mechanisms, each suited for different use cases:
+
+### Publishers and Subscribers (Pub/Sub)
+
+The **publish-subscribe** pattern is ideal for streaming sensor data or continuous state information. A publisher sends messages to a **topic** (a named channel), and any number of subscribers can listen to that topic. This is a one-to-many, fire-and-forget pattern—publishers don't know or care who's listening.
+
+**Example: Publishing IMU data**
+
+```python
+from rclpy.node import Node
+from sensor_msgs.msg import Imu
+
+class ImuPublisher(Node):
+    def __init__(self):
+        super().__init__('imu_publisher')
+        self.publisher = self.create_publisher(Imu, '/imu/data', 10)
+        self.timer = self.create_timer(0.01, self.publish_imu)  # 100 Hz
+
+    def publish_imu(self):
+        msg = Imu()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'imu_link'
+        # In a real system, read from actual IMU hardware
+        msg.linear_acceleration.z = 9.81
+        self.publisher.publish(msg)
+```
+
+**Use cases**: Sensor streams (cameras, lidars, IMUs), robot state updates, telemetry.
+
+### Services (Request/Response)
+
+**Services** implement synchronous request-response communication. A client sends a request and blocks until receiving a response. This is perfect for one-off queries or commands that need confirmation.
+
+```python
+from example_interfaces.srv import AddTwoInts
+
+class MathService(Node):
+    def __init__(self):
+        super().__init__('math_service')
+        self.srv = self.create_service(
+            AddTwoInts,
+            'add_two_ints',
+            self.add_callback
+        )
+
+    def add_callback(self, request, response):
+        response.sum = request.a + request.b
+        self.get_logger().info(f'{request.a} + {request.b} = {response.sum}')
+        return response
+```
+
+**Use cases**: Configuration queries, triggering calibration, requesting path plans, setting control modes.
+
+### Actions (Long-Running Tasks)
+
+**Actions** are for tasks that take time and need feedback. Unlike services, actions are asynchronous, provide progress updates, and can be canceled. Think of actions as "services with feedback"—perfect for navigation, grasping, or other goal-oriented behaviors.
+
+```python
+from rclpy.action import ActionServer
+from example_interfaces.action import Fibonacci
+
+class FibonacciActionServer(Node):
+    def __init__(self):
+        super().__init__('fibonacci_action_server')
+        self._action_server = ActionServer(
+            self,
+            Fibonacci,
+            'fibonacci',
+            self.execute_callback
+        )
+
+    def execute_callback(self, goal_handle):
+        feedback_msg = Fibonacci.Feedback()
+        sequence = [0, 1]
+
+        for i in range(1, goal_handle.request.order):
+            sequence.append(sequence[i] + sequence[i-1])
+            feedback_msg.sequence = sequence
+            goal_handle.publish_feedback(feedback_msg)  # Send progress
+
+        goal_handle.succeed()
+        result = Fibonacci.Result()
+        result.sequence = sequence
+        return result
+```
+
+**Use cases**: Navigation to goal, pick-and-place sequences, multi-step calibration procedures.
+
+## Creating Your First ROS 2 Package
+
+ROS 2 organizes code into **packages**—collections of related nodes, libraries, and configuration files. Here's how to create a Python package:
+
+```bash
+# Navigate to your workspace src directory
+cd ~/ros2_ws/src
+
+# Create a package named 'my_robot_controller'
+ros2 pkg create my_robot_controller \
+  --build-type ament_python \
+  --dependencies rclpy std_msgs sensor_msgs
+
+# This creates the following structure:
+# my_robot_controller/
+# ├── package.xml          # Package metadata
+# ├── setup.py             # Python package configuration
+# ├── setup.cfg
+# ├── my_robot_controller/ # Python module
+# │   └── __init__.py
+# └── resource/
+```
+
+The key file is `setup.py`, which defines your package's entry points (executable nodes):
+
+```python
+from setuptools import setup
+
+package_name = 'my_robot_controller'
+
+setup(
+    name=package_name,
+    version='0.0.1',
+    packages=[package_name],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    entry_points={
+        'console_scripts': [
+            'sensor_node = my_robot_controller.sensor_publisher:main',
+            'command_node = my_robot_controller.command_subscriber:main',
+        ],
+    },
+)
+```
+
+After adding your Python scripts to `my_robot_controller/`, build your workspace:
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select my_robot_controller
+source install/setup.bash  # Load the newly built package
+```
+
+`colcon` is ROS 2's build tool, which handles dependency resolution and parallel builds across multiple packages.
+
+## Running and Inspecting ROS 2 Systems
+
+ROS 2 provides powerful command-line tools for introspection. Here are the essential commands:
+
+**Running nodes:**
+```bash
+ros2 run my_robot_controller sensor_node
+```
+
+**Listing active nodes:**
+```bash
+ros2 node list
+# Output: /sensor_publisher
+```
+
+**Inspecting a node's details:**
+```bash
+ros2 node info /sensor_publisher
+# Shows publishers, subscribers, services, and actions
+```
+
+**Listing all topics:**
+```bash
+ros2 topic list
+# Output: /sensor/data, /robot/cmd_vel, etc.
+```
+
+**Viewing messages on a topic in real-time:**
+```bash
+ros2 topic echo /sensor/data
+```
+
+**Checking message structure:**
+```bash
+ros2 interface show sensor_msgs/msg/Imu
+# Shows all fields in the Imu message type
+```
+
+**Publishing from command line (useful for testing):**
+```bash
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "linear: {x: 0.5, y: 0.0, z: 0.0}"
+```
+
+These tools are invaluable for debugging. If your robot isn't responding to commands, you can check if the topic exists, verify message formats, and manually publish test commands—all without modifying code.
+
+## Hands-On Exercise: Sensor Publisher and Command Subscriber
+
+Let's build a practical example: a sensor node that publishes temperature readings, and a command node that subscribes to control commands. This mirrors real humanoid systems where sensors stream data and controllers respond to commands.
+
+### Step 1: Create the Sensor Publisher
+
+Create `my_robot_controller/sensor_publisher.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float32
+import random
+
+class SensorPublisher(Node):
+    def __init__(self):
+        super().__init__('sensor_publisher')
+        self.publisher = self.create_publisher(Float32, '/sensor/temperature', 10)
+        self.timer = self.create_timer(1.0, self.publish_sensor_data)
+        self.get_logger().info('Sensor publisher started!')
+
+    def publish_sensor_data(self):
+        msg = Float32()
+        # Simulate temperature sensor (20-25°C with noise)
+        msg.data = 22.5 + random.uniform(-2.5, 2.5)
+        self.publisher.publish(msg)
+        self.get_logger().info(f'Published temperature: {msg.data:.2f}°C')
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = SensorPublisher()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Step 2: Create the Command Subscriber
+
+Create `my_robot_controller/command_subscriber.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+class CommandSubscriber(Node):
+    def __init__(self):
+        super().__init__('command_subscriber')
+        self.subscription = self.create_subscription(
+            String,
+            '/robot/command',
+            self.command_callback,
+            10
+        )
+        self.get_logger().info('Command subscriber started! Waiting for commands...')
+
+    def command_callback(self, msg):
+        command = msg.data
+        self.get_logger().info(f'Received command: {command}')
+
+        # Process commands
+        if command == 'stand':
+            self.get_logger().info('Executing: Standing up')
+        elif command == 'walk':
+            self.get_logger().info('Executing: Walking forward')
+        elif command == 'stop':
+            self.get_logger().info('Executing: Stopping all motors')
+        else:
+            self.get_logger().warn(f'Unknown command: {command}')
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = CommandSubscriber()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Step 3: Run the Exercise
+
+**Terminal 1 - Start the sensor publisher:**
+```bash
+source ~/ros2_ws/install/setup.bash
+ros2 run my_robot_controller sensor_node
+```
+
+**Expected output:**
+```
+[INFO] [sensor_publisher]: Sensor publisher started!
+[INFO] [sensor_publisher]: Published temperature: 24.32°C
+[INFO] [sensor_publisher]: Published temperature: 21.87°C
+[INFO] [sensor_publisher]: Published temperature: 23.45°C
+```
+
+**Terminal 2 - Monitor the sensor data:**
+```bash
+ros2 topic echo /sensor/temperature
+```
+
+**Terminal 3 - Start the command subscriber:**
+```bash
+ros2 run my_robot_controller command_node
+```
+
+**Terminal 4 - Send commands:**
+```bash
+# Send a walk command
+ros2 topic pub --once /robot/command std_msgs/msg/String "data: 'walk'"
+
+# Send a stop command
+ros2 topic pub --once /robot/command std_msgs/msg/String "data: 'stop'"
+```
+
+**Expected behavior:**
+- Terminal 1 continuously publishes sensor readings
+- Terminal 2 shows live sensor data stream
+- Terminal 3 logs each received command and executes corresponding actions
+- Terminal 4 allows you to send commands interactively
+
+This exercise demonstrates the fundamental ROS 2 workflow: nodes communicate via topics, publishers send data continuously, and subscribers react to messages. This same pattern scales to complex humanoid systems with dozens of sensors and actuators.
+
+## Next Steps
+
+You've now mastered ROS 2's foundational concepts: nodes, topics, and basic communication patterns. In Chapter 2, you'll learn how to integrate Python AI agents with ROS 2 controllers using `rclpy`, bridging high-level decision-making with low-level motor control. You'll also explore URDF (Unified Robot Description Format) to define humanoid robot structures, and discover how ROS 2 services and actions enable sophisticated behaviors like motion planning and manipulation.
+
+Practice the hands-on exercise until you're comfortable running multiple nodes and inspecting their communication. Try modifying the sensor publisher to send different message types (e.g., `sensor_msgs/msg/Imu` for accelerometer data) or adding multiple subscribers to the same topic. The more you experiment, the more intuitive ROS 2's architecture becomes.
