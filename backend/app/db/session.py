@@ -41,8 +41,13 @@ def get_engine() -> AsyncEngine:
     """
     global _engine
     if _engine is None:
+       # Convert postgresql:// to postgresql+asyncpg:// for async driver
+        database_url = settings.DATABASE_URL.replace(
+            "postgresql://", "postgresql+asyncpg://"
+        ).replace("postgres://", "postgresql+asyncpg://")
+        
         _engine = create_async_engine(
-            settings.DATABASE_URL,
+            database_url,
             echo=False,  # Set to True for SQL query logging in development
             pool_pre_ping=True,  # Verify connections before using
             pool_size=5,  # Connection pool size (adjust based on load)
