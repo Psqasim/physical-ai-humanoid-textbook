@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # CORS Configuration
-    CORS_ORIGINS: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,https://psqasim.github.io"
 
     # Application Limits
     MAX_QUESTION_TOKENS: int = 500
