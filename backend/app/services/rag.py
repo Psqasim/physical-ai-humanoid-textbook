@@ -208,7 +208,7 @@ async def generate_answer(
     logger.info(f"Generating answer with model: {chat_model}")
 
     # Create OpenAI client
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    async with AsyncOpenAI(api_key=settings.OPENAI_API_KEY) as client:
 
     # Format system prompt with context
     system_message = SYSTEM_PROMPT.format(context=context)
