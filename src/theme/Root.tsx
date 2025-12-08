@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import AskTheTextbookButton from '@site/src/components/chat/AskTheTextbookButton';
-import ChatPanelPlaceholder from '@site/src/components/chat/ChatPanelPlaceholder';
-import TextSelectionTooltip from '@site/src/components/chat/TextSelectionTooltip';
+import { enableNewChatUI } from '@site/src/components/chat/featureFlags';
+
+// Conditionally import chat components based on feature flag
+// - Legacy UI: Original chat interface (before 003-chat-ui-redesign)
+// - New UI: Redesigned responsive, theme-aware interface (Phase 1-7 implementation)
+import ChatPanelPlaceholder from '@site/src/components/chat/ChatPanelPlaceholder.legacy';
+import TextSelectionTooltip from '@site/src/components/chat/TextSelectionTooltip.legacy';
+
+// TODO: Once enableNewChatUI = true, uncomment these imports:
+// import ChatPanelPlaceholder from '@site/src/components/chat/ChatPanelPlaceholder';
+// import TextSelectionTooltip from '@site/src/components/chat/TextSelectionTooltip';
 
 const MIN_SELECTION_LENGTH = 10;
 
