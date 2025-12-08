@@ -207,28 +207,26 @@ async def generate_answer(
     """
     logger.info(f"Generating answer with model: {chat_model}")
 
-    # Create OpenAI client
+    # Create OpenAI client with proper async context manager
     async with AsyncOpenAI(api_key=settings.OPENAI_API_KEY) as client:
-
-    # Format system prompt with context
-    system_message = SYSTEM_PROMPT.format(context=context)
-
-    # Call OpenAI chat API
-    response = await client.chat.completions.create(
-        model=chat_model,
-        messages=[
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": question},
-        ],
-        temperature=0.3,  # Lower temperature for more factual responses
-        max_tokens=800,  # Limit response length
-    )
-
-    # Extract answer
-    answer = response.choices[0].message.content or ""
-
-    logger.info(f"Generated answer ({len(answer)} chars)")
-    return answer
+        # Format system prompt with context
+        system_message = SYSTEM_PROMPT.format(context=context)
+    
+        # Call OpenAI chat API
+        response = await client.chat.completions.create(
+            model=chat_model,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": question},
+            ],
+            temperature=0.3,  # Lower temperature for more factual responses
+            max_tokens=800,  # Limit response length
+        )
+    
+        # Extract answer
+        answer = response.choices[0].message.content or ""
+        logger.info(f"Generated answer ({len(answer)} chars)")
+        return answer
 
 
 async def answer_chat_request(
