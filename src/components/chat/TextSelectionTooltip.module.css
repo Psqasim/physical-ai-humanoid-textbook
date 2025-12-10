@@ -1,35 +1,79 @@
+/**
+ * TextSelectionTooltip - Phase 4: Modern Redesign
+ *
+ * Features:
+ * - Smart positioning (above/below based on available space)
+ * - Preview text (first 50 chars of selection)
+ * - Smooth fade-in animation (200ms)
+ * - Modern rounded corners with shadow
+ * - Hidden on mobile devices (<768px)
+ */
+
 .tooltip {
   position: fixed;
-  z-index: 3000;
-  animation: fadeIn 0.2s ease;
+  z-index: 2100;
+  background: var(--ifm-background-surface-color, #ffffff);
+  border: 1px solid var(--ifm-color-emphasis-300, #e0e0e0);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 0.75rem;
+  max-width: 300px;
+  animation: tooltipFadeIn 200ms ease-out;
   pointer-events: auto;
+  transition: background-color 200ms ease, border-color 200ms ease;
 }
 
+/* Smart positioning */
+.tooltip.above {
+  transform: translateY(-100%) translateY(-8px);
+}
+
+.tooltip.below {
+  transform: translateY(8px);
+}
+
+/* Preview text */
+.preview {
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-700, #666);
+  font-style: italic;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+  word-break: break-word;
+  transition: color 200ms ease;
+}
+
+/* Ask button */
 .tooltipButton {
+  width: 100%;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: var(--ifm-color-primary);
-  color: white;
+  background: var(--ifm-color-primary, #0066cc);
+  color: #ffffff;
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
+  transition: background 200ms ease, transform 200ms ease;
   white-space: nowrap;
 }
 
 .tooltipButton:hover {
-  background: var(--ifm-color-primary-dark);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: var(--ifm-color-primary-dark, #0052a3);
+  transform: scale(1.02);
 }
 
 .tooltipButton:active {
-  transform: translateY(0);
+  transform: scale(0.98);
+}
+
+.tooltipButton:focus-visible {
+  outline: 2px solid var(--ifm-color-primary, #0066cc);
+  outline-offset: 2px;
 }
 
 .icon {
@@ -41,25 +85,39 @@
   line-height: 1;
 }
 
-@keyframes fadeIn {
+/* Fade-in animation */
+@keyframes tooltipFadeIn {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: translateY(-4px);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0);
   }
 }
 
-/* Mobile responsiveness */
-@media screen and (max-width: 768px) {
-  .tooltipButton {
-    padding: 0.625rem 0.875rem;
-    font-size: 0.8rem;
-  }
+/* Apply animation to placement variants */
+.tooltip.above {
+  animation: tooltipFadeIn 200ms ease-out;
+}
 
-  .icon {
-    font-size: 0.875rem;
+.tooltip.below {
+  animation: tooltipFadeIn 200ms ease-out;
+}
+
+/* Hide on mobile (<768px) */
+@media (max-width: 768px) {
+  .tooltip {
+    display: none;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .tooltip,
+  .tooltipButton {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

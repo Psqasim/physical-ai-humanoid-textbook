@@ -102,19 +102,20 @@
 
 /* Header - Fixed at top */
 .header {
+  /* CRITICAL: position sticky with relative for absolute close button */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.5rem;
+  padding-right: 70px; /* Space for absolute close button */
   min-height: 60px;
 
   background: var(--ifm-background-surface-color, #ffffff);
   border-bottom: 1px solid var(--ifm-color-emphasis-200, #e0e0e0);
-
-  /* Sticky positioning */
-  position: sticky;
-  top: 0;
-  z-index: 10;
 
   /* Smooth theme transitions */
   transition: background-color 200ms ease, border-color 200ms ease;
@@ -128,33 +129,79 @@
   transition: color 200ms ease;
 }
 
+/* CRITICAL FIX: Close button always visible in both themes */
 .closeButton {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  cursor: pointer;
-  color: var(--ifm-color-emphasis-700, #666);
-  padding: 0.5rem;
-  line-height: 1;
-  border-radius: 4px;
-  transition: color 200ms ease, background-color 200ms ease;
+  /* Absolute positioning in top-right corner */
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
 
-  /* Touch-friendly */
+  /* Size: 44px × 44px (touch-friendly) */
+  width: 44px;
+  height: 44px;
   min-width: 44px;
   min-height: 44px;
+
+  /* Rounded button */
+  border-radius: 50%;
+  border: none;
+
+  /* Font */
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+
+  /* Layout */
   display: flex;
   align-items: center;
   justify-content: center;
+
+  /* Cursor */
+  cursor: pointer;
+
+  /* Ensure it's above everything */
+  z-index: 10;
+
+  /* Default colors (light mode) */
+  background: #e0e0e0;
+  color: #1a1a1a;
+
+  /* Smooth transitions */
+  transition: all 0.2s ease;
 }
 
 .closeButton:hover {
-  color: var(--ifm-color-content, #1c1e21);
-  background-color: var(--ifm-color-emphasis-100, #f5f5f5);
+  background: #d0d0d0;
+  transform: scale(1.1);
+}
+
+.closeButton:active {
+  transform: scale(0.95);
 }
 
 .closeButton:focus-visible {
   outline: 2px solid var(--ifm-color-primary, #0066cc);
   outline-offset: 2px;
+}
+
+/* Light mode: ensure visibility */
+[data-theme='light'] .closeButton {
+  background: #e0e0e0;
+  color: #1a1a1a;
+}
+
+[data-theme='light'] .closeButton:hover {
+  background: #d0d0d0;
+}
+
+/* Dark mode: ensure visibility */
+[data-theme='dark'] .closeButton {
+  background: #2d2d2d;
+  color: #ffffff;
+}
+
+[data-theme='dark'] .closeButton:hover {
+  background: #3d3d3d;
 }
 
 /* Mode Selector */
@@ -296,31 +343,7 @@
   transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
 }
 
-/* Error Banner */
-.errorBanner {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background-color: var(--ifm-color-danger-contrast-background, #fff5f5);
-  border-left: 4px solid var(--ifm-color-danger, #d32f2f);
-  border-radius: 8px;
-  margin-bottom: 1rem;
-  align-items: center;
-  transition: background-color 200ms ease, border-color 200ms ease;
-}
-
-.errorIcon {
-  font-size: 1.25rem;
-  flex-shrink: 0;
-}
-
-.errorText {
-  flex: 1;
-  font-size: 0.9rem;
-  color: var(--ifm-color-danger-dark, #b71c1c);
-  line-height: 1.4;
-  transition: color 200ms ease;
-}
+/* Error Banner (now using ErrorMessage component) */
 
 /* Messages List */
 .messagesList {
@@ -431,96 +454,16 @@
 }
 
 .citationsList {
-  list-style: none;
-  padding: 0;
-  margin: 0;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.citationItem {
   margin: 0;
-}
-
-.citationLink {
-  display: block;
-  padding: 0.75rem;
-  background-color: var(--ifm-background-color, #ffffff);
-  border: 1px solid var(--ifm-color-emphasis-200, #e0e0e0);
-  border-radius: 8px;
-  text-decoration: none;
-
-  /* Hover effect */
-  transition: all 200ms ease;
-}
-
-.citationLink:hover {
-  border-color: var(--ifm-color-primary, #0066cc);
-  background-color: var(--ifm-color-primary-contrast-background, #f0f7ff);
-  transform: translateX(4px);
-}
-
-.citationLink:focus-visible {
-  outline: 2px solid var(--ifm-color-primary, #0066cc);
-  outline-offset: 2px;
-}
-
-.citationHeading {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--ifm-color-primary, #0066cc);
-  margin-bottom: 0.25rem;
-
-  /* Truncate long headings */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  transition: color 200ms ease;
-}
-
-.citationSnippet {
-  font-size: 0.8rem;
-  color: var(--ifm-color-emphasis-700, #666);
-  line-height: 1.4;
-
-  /* Clamp to 2 lines */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-
-  transition: color 200ms ease;
+  padding: 0;
 }
 
 /* ============================================
-   LOADING INDICATOR
+   LOADING INDICATOR (now using LoadingIndicator component)
    ============================================ */
-
-.loadingMessage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  padding: 1rem;
-  background-color: var(--ifm-background-surface-color, #f5f5f5);
-  border-radius: 12px;
-  border: 1px solid var(--ifm-color-emphasis-200, #e0e0e0);
-  transition: background-color 200ms ease, border-color 200ms ease;
-}
-
-.loadingSpinner {
-  font-size: 1.25rem;
-  animation: spin 1s linear infinite;
-}
-
-.loadingText {
-  font-size: 0.9rem;
-  color: var(--ifm-color-emphasis-700, #666);
-  font-style: italic;
-  transition: color 200ms ease;
-}
 
 /* ============================================
    INPUT AREA COMPONENTS
@@ -763,6 +706,23 @@ select:focus-visible {
   outline: 2px solid var(--ifm-color-primary, #0066cc);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* ============================================
+   ACCESSIBILITY - SCREEN READER ONLY TEXT
+   ============================================ */
+
+/* Screen reader only text (visually hidden but accessible) */
+:global(.sr-only) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
 /* ============================================

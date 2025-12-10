@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import styles from './ChatPanelPlaceholder.module.css';
+import CitationCard from './CitationCard';
+import LoadingIndicator from './LoadingIndicator';
+import ErrorMessage from './ErrorMessage';
 
 interface ChatPanelPlaceholderProps {
   isOpen?: boolean;
@@ -135,24 +138,6 @@ export default function ChatPanelPlaceholder({
   };
 
   /**
-   * Build citation URL from docPath
-   */
-  const getCitationUrl = (docPath: string): string => {
-    const baseUrl = siteConfig.baseUrl || '/';
-
-    // Remove /docs prefix if present
-    let cleanPath = docPath;
-    if (cleanPath.startsWith('/docs/')) {
-      cleanPath = cleanPath.substring(6); // Remove '/docs/'
-    } else if (cleanPath.startsWith('docs/')) {
-      cleanPath = cleanPath.substring(5); // Remove 'docs/'
-    }
-
-    // Build full URL
-    return `${baseUrl}docs/${cleanPath}`.replace(/\/+/g, '/');
-  };
-
-  /**
    * Handle sending a message
    */
   const handleSend = async () => {
@@ -246,12 +231,18 @@ export default function ChatPanelPlaceholder({
   };
 
   /**
-   * Handle Enter key press
+   * Handle keyboard shortcuts
+   * - Enter: Send message (without Shift)
+   * - Shift+Enter: New line
+   * - Escape: Close chat panel
    */
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose?.();
     }
   };
 
@@ -260,8 +251,13 @@ export default function ChatPanelPlaceholder({
   }
 
   return (
-    <div className={styles.overlay}>
-      <div className={styles.panel}>
+    <div className={styles.overlay} onClick={onClose}>
+      <div
+        className={styles.panel}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         {/* Header */}
         <div className={styles.header}>
           <h2 className={styles.title}>Study Assistant</h2>
@@ -269,22 +265,29 @@ export default function ChatPanelPlaceholder({
             className={styles.closeButton}
             onClick={onClose}
             aria-label="Close chat panel"
+            type="button"
           >
             ✕
           </button>
         </div>
 
         {/* Mode Selector */}
-        <div className={styles.modeSelector}>
+        <div className={styles.modeSelector} role="group" aria-label="Chat mode selector">
           <button
             className={`${styles.modeButton} ${mode === 'whole-book' ? styles.active : ''}`}
             onClick={() => setMode('whole-book')}
+            aria-label="Switch to whole-book Q&A mode"
+            aria-pressed={mode === 'whole-book'}
+            type="button"
           >
             📚 Whole-book Q&A
           </button>
           <button
             className={`${styles.modeButton} ${mode === 'selection' ? styles.active : ''}`}
             onClick={() => setMode('selection')}
+            aria-label="Switch to selection-based Q&A mode"
+            aria-pressed={mode === 'selection'}
+            type="button"
           >
             ✨ Selection-based Q&A
           </button>
@@ -304,10 +307,10 @@ export default function ChatPanelPlaceholder({
 
           {/* Error Banner */}
           {error && (
-            <div className={styles.errorBanner}>
-              <div className={styles.errorIcon}>⚠️</div>
-              <div className={styles.errorText}>{error}</div>
-            </div>
+            <ErrorMessage
+              message={error}
+              onDismiss={() => setError(null)}
+            />
           )}
 
           {/* Messages List */}
@@ -339,37 +342,22 @@ export default function ChatPanelPlaceholder({
                 {message.role === 'assistant' && message.citations && message.citations.length > 0 && (
                   <div className={styles.citations}>
                     <div className={styles.citationsTitle}>📚 Sources:</div>
-                    <ul className={styles.citationsList}>
+                    <div className={styles.citationsList}>
                       {message.citations.map((citation, citIndex) => (
-                        <li key={citIndex} className={styles.citationItem}>
-                          <a
-                            href={getCitationUrl(citation.docPath)}
-                            className={styles.citationLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <div className={styles.citationHeading}>
-                              {citation.heading}
-                            </div>
-                            <div className={styles.citationSnippet}>
-                              {citation.snippet}
-                            </div>
-                          </a>
-                        </li>
+                        <CitationCard
+                          key={citIndex}
+                          citation={citation}
+                          baseUrl={siteConfig.baseUrl || '/'}
+                        />
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
               </div>
             ))}
 
             {/* Loading Indicator */}
-            {loading && (
-              <div className={styles.loadingMessage}>
-                <div className={styles.loadingSpinner}>⏳</div>
-                <div className={styles.loadingText}>Thinking...</div>
-              </div>
-            )}
+            {loading && <LoadingIndicator message="AI is thinking..." />}
 
             <div ref={messagesEndRef} />
           </div>
@@ -389,7 +377,13 @@ export default function ChatPanelPlaceholder({
             onKeyPress={handleKeyPress}
             disabled={loading}
             rows={2}
+            maxLength={1000}
+            aria-label="Type your question"
+            aria-describedby="chat-input-hint"
           />
+          <span id="chat-input-hint" className="sr-only">
+            Press Enter to send, Shift+Enter for new line, Escape to close
+          </span>
           <button
             className={styles.sendButton}
             onClick={handleSend}

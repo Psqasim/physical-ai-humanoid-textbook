@@ -24,9 +24,9 @@
 /**
  * Enable the new redesigned chat UI (Phase 1-7 implementation)
  *
- * - `false` (default): Use legacy UI (ChatPanelPlaceholder.legacy.tsx, TextSelectionTooltip.legacy.tsx)
- * - `true`: Use new responsive, theme-aware UI (ChatPanelPlaceholder.tsx, TextSelectionTooltip.tsx)
+ * - `false`: Use legacy UI (ChatPanelPlaceholder.legacy.tsx, TextSelectionTooltip.legacy.tsx)
+ * - `true` (default): Use new responsive, theme-aware UI (ChatPanelPlaceholder.tsx, TextSelectionTooltip.tsx)
  *
- * Default: false (legacy UI) until Phase 7 testing is complete
+ * Updated: 2025-12-10 - Phase 7 complete, new UI enabled by default
  */
-export const enableNewChatUI = false;
+export const enableNewChatUI = true;

@@ -1,0 +1,111 @@
+/**
+ * LoadingIndicator Styles
+ *
+ * Animated loading indicator with 3 bouncing dots.
+ * Used while waiting for AI responses in chat messages.
+ *
+ * Phase: 2 (Component Extraction)
+ * Feature: 003-chat-ui-redesign
+ */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1rem;
+  background-color: var(--ifm-color-emphasis-100, #f5f5f5);
+  border: 1px solid var(--ifm-color-emphasis-200, #e0e0e0);
+  border-radius: 12px;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.dots {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  background-color: var(--ifm-color-primary, #0066cc);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out;
+  transition: background-color 200ms ease;
+}
+
+/* Stagger animation delays for wave effect */
+.dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.7;
+  }
+  30% {
+    transform: translateY(-12px);
+    opacity: 1;
+  }
+}
+
+.message {
+  margin: 0;
+  font-size: 0.9rem;
+  font-style: italic;
+  color: var(--ifm-color-emphasis-700, #666);
+  text-align: center;
+  transition: color 200ms ease;
+}
+
+/* Mobile: Larger dots for better visibility */
+@media (max-width: 768px) {
+  .dot {
+    width: 12px;
+    height: 12px;
+  }
+
+  @keyframes bounce {
+    0%, 60%, 100% {
+      transform: translateY(0);
+      opacity: 0.7;
+    }
+    30% {
+      transform: translateY(-14px);
+      opacity: 1;
+    }
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  /* Simple fade animation instead */
+  .dots {
+    animation: simpleFade 1.4s infinite ease-in-out;
+  }
+
+  @keyframes simpleFade {
+    0%, 100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+}
