@@ -1,0 +1,22 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.tutorialSidebar.category.Module 1 – ROS 2: Robotic Nervous System": {
+    "message": "ماڈیول 1 – ROS 2: روبوٹ کا اعصابی نظام",
+    "description": "The label for category Module 1 – ROS 2: Robotic Nervous System in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Module 2 – Digital Twin (Gazebo & Unity)": {
+    "message": "ماڈیول 2 – ڈیجیٹل ٹون (Gazebo & Unity)",
+    "description": "The label for category Module 2 – Digital Twin (Gazebo & Unity) in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Module 3 – NVIDIA Isaac (AI-Robot Brain)": {
+    "message": "ماڈیول 3 – NVIDIA Isaac (AI روبوٹ دماغ)",
+    "description": "The label for category Module 3 – NVIDIA Isaac (AI-Robot Brain) in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Module 4 – Vision-Language-Action (VLA)": {
+    "message": "ماڈیول 4 – Vision-Language-Action (VLA)",
+    "description": "The label for category Module 4 – Vision-Language-Action (VLA) in sidebar tutorialSidebar"
+  }
+}

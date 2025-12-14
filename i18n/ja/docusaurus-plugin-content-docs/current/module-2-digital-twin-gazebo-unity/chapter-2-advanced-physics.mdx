@@ -1,0 +1,533 @@
+---
+sidebar_position: 3
+title: Chapter 2 - 高度な物理とセンサー
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 2: 高度な物理とセンサー
+
+<ChapterActionsBar chapterTitle="Advanced Physics and Sensors" />
+
+## はじめに
+
+Chapter 1では、カメラとIMUを備えた基本的なモバイルロボットを構築しました。機能的ではありましたが、そのシミュレーションはいくつかの単純化された仮定を行いました：摩擦のない表面、完璧なモーター、理想化されたセンサー。実世界のロボットは混沌とした予測不可能な環境で動作します—床は摩擦が変化し、モーターはバックラッシュと飽和を示し、LiDARのようなセンサーは距離依存のノイズとオクルージョンを持ちます。
+
+この章は、基本的なシミュレーションと**本番グレードのDigital Twin**の間のギャップを埋めます。リアルな接触ダイナミクス（摩擦、跳ね返り、減衰）をモデル化し、ナビゲーションに不可欠な高度なセンサー（LiDAR、GPS、depth cameras）を追加し、複雑なシナリオをリアルタイムで実行するためにシミュレーションのパフォーマンスを最適化する方法を学びます。終了までに、ヒューマノイドロボットが実世界でどのように動作するかを正確に予測する高忠実度シミュレーションを作成できるようになります。
+
+## 接触ダイナミクス：摩擦と衝突のモデリング
+
+ヒューマノイドロボットの足が地面に触れると、複数の物理現象が同時に発生します：法線力が貫通に抵抗し、摩擦が滑りを防ぎ、材料のコンプライアンスがわずかな変形を引き起こします。Gazeboの物理エンジン（ODE、Bullet、DART）はこれらの相互作用をシミュレートしますが、**正確な結果にはパラメータの調整が必要です**。
+
+### 摩擦係数
+
+2つの表面間の摩擦は**Coulomb摩擦**を使用してモデル化され、2つの係数で特徴付けられます：
+
+- **μ₁ (mu1)**：静摩擦係数（初期運動への抵抗）
+- **μ₂ (mu2)**：動摩擦係数（滑走中の抵抗）
+
+Gazeboでは、URDF/SDFで表面ごとにこれらを定義します：
+
+```xml
+<gazebo reference="base_link">
+  <mu1>0.8</mu1>  <!-- Rubber on concrete -->
+  <mu2>0.6</mu2>
+  <kp>1000000.0</kp>  <!-- Contact stiffness -->
+  <kd>100.0</kd>      <!-- Contact damping -->
+</gazebo>
+```
+
+**典型的な摩擦値**：
+- 氷の上の氷：μ₁ ≈ 0.02、μ₂ ≈ 0.01（非常に滑りやすい）
+- 乾いたコンクリート上のゴム：μ₁ ≈ 1.0、μ₂ ≈ 0.8（高いトラクション）
+- 金属の上の金属：μ₁ ≈ 0.6、μ₂ ≈ 0.4
+
+**ヒューマノイドにとってなぜ重要か**：歩行コントローラーは一定レベルの地面の摩擦を仮定します。シミュレーションがμ=1.0を使用しているが、実際の床がμ=0.5（濡れたタイル）の場合、ロボットは滑って転倒します。常に最悪の場合の摩擦シナリオをシミュレートしてください。
+
+### 接触剛性と減衰
+
+`<kp>`（剛性）と`<kd>`（減衰）パラメータは、表面が接触にどのように応答するかを制御します：
+
+- **高いkp**：剛性接触（コンクリート床）– オブジェクトの跳ね返りが少なく、貫通が最小限
+- **低いkp**：柔らかい接触（フォームマット）– オブジェクトが沈み込み、跳ね返りが少ない
+- **高いkd**：重く減衰（泥）– エネルギーが迅速に散逸し、跳ね返りなし
+- **低いkd**：軽く減衰（ゴムボール）– 跳ねる衝突
+
+```xml
+<!-- Rigid floor (warehouse concrete) -->
+<kp>10000000.0</kp>
+<kd>1000.0</kd>
+
+<!-- Soft terrain (grass, carpet) -->
+<kp>100000.0</kp>
+<kd>10.0</kd>
+```
+
+**摩擦のテスト**：Gazeboで異なる角度でランプを作成し、異なる摩擦係数に対する滑り角を測定します。これにより、歩行コントローラーを配備する前に物理モデルを検証します。
+
+### リアルな地面接触のモデリング
+
+ヒューマノイドの足の場合、**高い摩擦**（滑りを防ぐ）と**コンプライアント表面**（衝撃を吸収）を望むことがよくあります。完全な足のlink定義は次のとおりです：
+
+```xml
+<link name="foot_link">
+  <collision>
+    <geometry>
+      <box size="0.2 0.1 0.05"/>
+    </geometry>
+  </collision>
+  <inertial>
+    <mass value="0.5"/>
+    <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+  </inertial>
+</link>
+
+<gazebo reference="foot_link">
+  <mu1>1.2</mu1>      <!-- High friction for stability -->
+  <mu2>1.0</mu2>
+  <kp>5000000.0</kp>  <!-- Moderately stiff -->
+  <kd>500.0</kd>      <!-- Some damping to absorb shock -->
+  <material>Gazebo/DarkGrey</material>
+</gazebo>
+```
+
+## 高度なセンサーシミュレーション
+
+### LiDAR：2Dおよび3Dスキャニング
+
+**LiDAR（Light Detection and Ranging）**センサーはレーザーパルスを発射し、飛行時間を測定して距離を計算します。SLAM（Simultaneous Localization and Mapping）と障害物回避に不可欠です。
+
+#### 2D平面LiDAR（例：SICK LMS、Hokuyo）
+
+平坦な環境での2Dナビゲーションに使用されます。
+
+```xml
+<link name="lidar_link">
+  <visual>
+    <geometry>
+      <cylinder radius="0.05" length="0.07"/>
+    </geometry>
+    <material name="black">
+      <color rgba="0 0 0 1"/>
+    </material>
+  </visual>
+</link>
+
+<joint name="lidar_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="lidar_link"/>
+  <origin xyz="0.2 0 0.15" rpy="0 0 0"/>
+</joint>
+
+<gazebo reference="lidar_link">
+  <sensor name="lidar" type="ray">
+    <always_on>true</always_on>
+    <update_rate>10</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>720</samples>          <!-- 720 beams -->
+          <resolution>1</resolution>
+          <min_angle>-3.14159</min_angle> <!-- -180° -->
+          <max_angle>3.14159</max_angle>  <!-- +180° -->
+        </horizontal>
+      </scan>
+      <range>
+        <min>0.1</min>
+        <max>30.0</max>
+        <resolution>0.01</resolution>
+      </range>
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.01</stddev> <!-- 1cm noise -->
+      </noise>
+    </ray>
+    <plugin name="lidar_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=scan</remapping>
+      </ros>
+      <output_type>sensor_msgs/LaserScan</output_type>
+      <frame_name>lidar_link</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**主要なパラメータ**：
+- `<samples>`：スキャンごとのレーザービーム数（高い = より詳細、遅い）
+- `<min_angle>`/`<max_angle>`：視野（360° = 完全な円）
+- `<range>`：検出距離（室内LiDARの典型は0.1mから30m）
+- `<noise>`：ガウスノイズは実際のセンサーの不完全性をシミュレート
+
+**LiDARデータを可視化**：
+```bash
+# Terminal 1: Launch Gazebo with robot
+ros2 launch my_robot_description gazebo.launch.py
+
+# Terminal 2: View scan data in RViz
+rviz2
+# In RViz:
+# - Add LaserScan display
+# - Set topic to /my_robot/scan
+# - Set Fixed Frame to "base_link" or "lidar_link"
+```
+
+#### 3D LiDAR（Velodyne、Ouster）
+
+3Dマッピング、地形分析、空中ドローンに使用されます。
+
+```xml
+<gazebo reference="lidar_3d_link">
+  <sensor name="velodyne" type="ray">
+    <always_on>true</always_on>
+    <update_rate>10</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>360</samples>
+          <resolution>1</resolution>
+          <min_angle>-3.14159</min_angle>
+          <max_angle>3.14159</max_angle>
+        </horizontal>
+        <vertical>
+          <samples>16</samples>           <!-- 16-beam Velodyne -->
+          <resolution>1</resolution>
+          <min_angle>-0.2618</min_angle>  <!-- -15° down -->
+          <max_angle>0.2618</max_angle>   <!-- +15° up -->
+        </vertical>
+      </scan>
+      <range>
+        <min>0.5</min>
+        <max>100.0</max>
+        <resolution>0.02</resolution>
+      </range>
+    </ray>
+    <plugin name="velodyne_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=velodyne_points</remapping>
+      </ros>
+      <output_type>sensor_msgs/PointCloud2</output_type>
+      <frame_name>lidar_3d_link</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**使用事例**：荒れた地形を移動するヒューマノイドは、2D LiDARが見逃す階段、縁石、不均一な地面を検出するために3D LiDARを使用します。
+
+### Depth Cameras（RGB-Dセンサー）
+
+Intel RealSenseやMicrosoft KinectのようなDepth camerasは、RGB画像とピクセルごとの深度測定を組み合わせます。
+
+```xml
+<gazebo reference="depth_camera_link">
+  <sensor name="depth_camera" type="depth">
+    <update_rate>20</update_rate>
+    <camera>
+      <horizontal_fov>1.047</horizontal_fov>
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.3</near>
+        <far>10.0</far>
+      </clip>
+    </camera>
+    <plugin name="depth_camera_controller" filename="libgazebo_ros_camera.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>image_raw:=depth_camera/image</remapping>
+        <remapping>depth/image_raw:=depth_camera/depth</remapping>
+        <remapping>points:=depth_camera/points</remapping>
+      </ros>
+      <frame_name>depth_camera_link</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**出力トピック**：
+- `/depth_camera/image`：RGB画像
+- `/depth_camera/depth`：深度画像（グレースケール、強度 = 距離）
+- `/depth_camera/points`：PointCloud2（3Dポイントクラウド）
+
+**アプリケーション**：オブジェクト認識パイプラインは、色ベースの検出にRGBを使用し、3Dポーズ推定に深度を使用します。
+
+### GPS（Global Positioning System）
+
+屋外ロボット（配達ロボット、農業ボット）の場合、GPSはグローバルローカリゼーションを提供します。
+
+```xml
+<gazebo reference="base_link">
+  <sensor name="gps_sensor" type="gps">
+    <always_on>true</always_on>
+    <update_rate>1.0</update_rate>
+    <gps>
+      <position_sensing>
+        <horizontal>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>2.0</stddev> <!-- 2m horizontal error (consumer GPS) -->
+          </noise>
+        </horizontal>
+        <vertical>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>4.0</stddev> <!-- 4m vertical error -->
+          </noise>
+        </vertical>
+      </position_sensing>
+      <velocity_sensing>
+        <horizontal>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.1</stddev>
+          </noise>
+        </horizontal>
+        <vertical>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.1</stddev>
+          </noise>
+        </vertical>
+      </velocity_sensing>
+    </gps>
+    <plugin name="gps_controller" filename="libgazebo_ros_gps_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=gps/fix</remapping>
+      </ros>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**ノイズが重要な理由**：実際のGPSは衛星の可視性に応じて2-10mの誤差があります。ナビゲーションスタックは、センサーフュージョン（GPS + IMU + wheel odometry）を使用してこの不確実性を処理する必要があります。
+
+### Force-Torqueセンサー
+
+ヒューマノイドロボットは、足（地面反力を測定）と手首（把持力を測定）にforce-torqueセンサーを使用します。
+
+```xml
+<gazebo>
+  <plugin name="ft_sensor" filename="libgazebo_ros_ft_sensor.so">
+    <ros>
+      <namespace>/my_robot</namespace>
+      <remapping>~/out:=ft_sensor/data</remapping>
+    </ros>
+    <update_rate>100</update_rate>
+    <joint_name>ankle_joint</joint_name>
+    <frame_name>foot_link</frame_name>
+    <measure_direction>child_to_parent</measure_direction>
+  </plugin>
+</gazebo>
+```
+
+**アプリケーション**：歩行コントローラーは、動的バランスに不可欠な地面接触タイミングを検出するために足の力センサーを使用します。
+
+## パフォーマンスの最適化
+
+ワールドに複雑なジオメトリや多くのセンサーがある場合、シミュレーションは遅くなる可能性があります。最適化方法は次のとおりです：
+
+### 1. 衝突メッシュの簡略化
+
+詳細なビジュアルメッシュの代わりに、衝突検出にプリミティブ形状（ボックス、シリンダー、球）を使用します。
+
+```xml
+<link name="body">
+  <!-- Detailed visual mesh -->
+  <visual>
+    <geometry>
+      <mesh filename="model://my_robot/meshes/body.dae"/>
+    </geometry>
+  </visual>
+
+  <!-- Simple collision shape (approximation) -->
+  <collision>
+    <geometry>
+      <box size="0.5 0.3 0.7"/>
+    </geometry>
+  </collision>
+</link>
+```
+
+**影響**：衝突チェックは、複雑なメッシュと比較してプリミティブで10-100倍速く実行されます。
+
+### 2. 物理更新レートの調整
+
+Gazeboのデフォルト物理更新は1000 Hz（1msタイムステップ）です。リアルタイムより速いシミュレーションの場合、これを減らします：
+
+```xml
+<world name="default">
+  <physics type="ode">
+    <max_step_size>0.01</max_step_size>      <!-- 10ms timestep = 100 Hz -->
+    <real_time_update_rate>100</real_time_update_rate>
+  </physics>
+</world>
+```
+
+**トレードオフ**：更新レートが低いと精度が低下します。最小限許容可能なレートを見つけるために、異なるレートでコントローラーをテストしてください。
+
+### 3. センサー更新レートの削減
+
+60 Hzのカメラはほとんどのアプリケーションにとってやり過ぎです。10-30 Hzを使用します：
+
+```xml
+<update_rate>10</update_rate> <!-- Instead of 60 -->
+```
+
+### 4. ヘッドレスシミュレーション
+
+RLポリシーのトレーニングやCI/CDテストの場合、GUIなしで`gzserver`を実行します：
+
+```bash
+gzserver --verbose my_world.world &
+ros2 launch my_robot_controller train_policy.launch.py
+```
+
+**高速化**：レンダリングなしで2-5倍速くなります。
+
+## ハンズオン演習：マッピングロボットの構築
+
+**目的**：2D LiDARを備えたロボットを作成し、迷路のような環境で実行し、ROS 2のSLAM Toolboxを使用して2D占有グリッドマップを生成します。
+
+### ステップ1：ロボットにLiDARを追加
+
+Chapter 1のURDFを使用して、この章の前半の2D LiDARセンサー定義を追加します。
+
+### ステップ2：迷路Worldの作成
+
+`worlds/maze.world`を作成します：
+
+```xml
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="maze">
+    <include><uri>model://ground_plane</uri></include>
+    <include><uri>model://sun</uri></include>
+
+    <!-- Walls forming a simple maze -->
+    <model name="wall1">
+      <pose>5 0 1 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall2">
+      <pose>0 5 1 0 0 1.5708</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Add more walls to create complexity -->
+  </world>
+</sdf>
+```
+
+### ステップ3：SLAM Toolboxのインストールと起動
+
+```bash
+# Install SLAM Toolbox
+sudo apt-get install ros-humble-slam-toolbox
+
+# Launch Gazebo with maze
+ros2 launch my_robot_description gazebo.launch.py world:=maze.world
+
+# Launch SLAM Toolbox (in new terminal)
+ros2 launch slam_toolbox online_async_launch.py \
+  use_sim_time:=true \
+  scan_topic:=/my_robot/scan
+
+# Launch RViz to visualize map (in new terminal)
+rviz2
+```
+
+**RVizで**：
+1. Fixed Frameを`map`に設定
+2. `Map` displayを追加（topic: `/map`）
+3. `LaserScan` displayを追加（topic: `/my_robot/scan`）
+4. `RobotModel`を追加
+
+### ステップ4：運転とマッピング
+
+キーボードteleopを使用して迷路を通してロボットを運転します：
+
+```bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+  --ros-args --remap cmd_vel:=/cmd_vel
+```
+
+運転すると、RVizでマップが埋まるのを観察してください。SLAM Toolboxはレーザースキャンとオドメトリを融合して2D占有グリッドを構築します。
+
+### ステップ5：マップの保存
+
+探索が完了したら：
+
+```bash
+ros2 run nav2_map_server map_saver_cli -f my_maze_map
+```
+
+これにより、`my_maze_map.pgm`（画像）と`my_maze_map.yaml`（メタデータ）が作成されます。後でこのマップをNav2での自律ナビゲーションに使用できます。
+
+## Domain Randomization：Reality Gapを閉じる
+
+シミュレーションをより堅牢にするために、トレーニング中に**パラメータをランダム化**します：
+
+- **摩擦**：μ ∈ [0.5, 1.2]
+- **センサーノイズ**：σ ∈ [0.005, 0.02]
+- **オブジェクトの位置**：障害物の配置をランダム化
+- **照明**：ビジョンタスクの明るさを変える
+
+**実装**：spawnの前にSDFパラメータを変更するPythonスクリプトを書きます：
+
+```python
+import random
+from xml.etree import ElementTree as ET
+
+def randomize_friction(sdf_file):
+    tree = ET.parse(sdf_file)
+    root = tree.getroot()
+
+    for surface in root.iter('surface'):
+        mu1 = surface.find('.//mu1')
+        if mu1 is not None:
+            # Randomize between 0.5 and 1.2
+            mu1.text = str(random.uniform(0.5, 1.2))
+
+    tree.write(sdf_file)
+```
+
+各トレーニングエピソードの前にこれを実行して、RLポリシーを多様な条件に晒します。
+
+## 次のステップ
+
+高度な物理シミュレーションとセンサー統合をマスターしました：
+- リアルな接触のための摩擦、剛性、減衰の調整
+- LiDAR、depth cameras、GPS、force-torqueセンサーのシミュレーション
+- シミュレーションパフォーマンスの最適化
+- SLAMによるマップの構築
+
+次のモジュール（**Module 3: NVIDIA Isaac Sim**）では、大規模ロボットフリート用のGPU加速シミュレーションと、知覚トレーニング用のフォトリアリスティックレンダリングを探索します。Isaac Gymのような強化学習フレームワークと物理ベースのシミュレーションを統合する方法も学びます。
+
+**チャレンジ演習**：ロボットに3D LiDARを追加し、3Dマッピング（OctomapまたはRTAB-Map）を使用するようにSLAM launchファイルを変更します。同じ環境での2Dマップと3Dマップの品質を比較してください。

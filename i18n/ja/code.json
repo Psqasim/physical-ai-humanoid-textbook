@@ -1,0 +1,10 @@
+{
+  "theme.common.skipToMainContent": {
+    "message": "メインコンテンツまでスキップ",
+    "description": "The skip to content label used for accessibility"
+  },
+  "theme.tags.tagsPageTitle": {
+    "message": "タグ",
+    "description": "The title of the tag list page"
+  }
+}

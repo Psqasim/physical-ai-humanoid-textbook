@@ -18,7 +18,8 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Module 1 – ROS 2: Robotic Nervous System',
-      collapsible: false,
+      collapsible: true,
+      collapsed: false,
       items: [
         'module-1-ros2/overview',
         'module-1-ros2/chapter-1-basics',
@@ -27,7 +28,8 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Module 2 – Digital Twin (Gazebo & Unity)',
-      collapsible: false,
+      collapsible: true,
+      collapsed: false,
       items: [
         'module-2-digital-twin-gazebo-unity/overview',
         'module-2-digital-twin-gazebo-unity/chapter-1-simulation-basics',
@@ -36,7 +38,8 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Module 3 – NVIDIA Isaac (AI-Robot Brain)',
-      collapsible: false,
+      collapsible: true,
+      collapsed: false,
       items: [
         'module-3-nvidia-isaac/overview',
         'module-3-nvidia-isaac/chapter-1-getting-started',
@@ -45,7 +48,8 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Module 4 – Vision-Language-Action (VLA)',
-      collapsible: false,
+      collapsible: true,
+      collapsed: false,
       items: [
         'module-4-vision-language-action/overview',
         'module-4-vision-language-action/chapter-1-vla-intro',

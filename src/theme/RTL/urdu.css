@@ -1,0 +1,527 @@
+/**
+ * RTL (Right-to-Left) Support for Urdu Language
+ *
+ * This stylesheet implements a hybrid RTL approach:
+ * - Content areas and chat: RTL
+ * - Navigation (navbar, sidebar, footer): LTR
+ * - Code blocks: Always LTR
+ *
+ * Applies only when html[dir="rtl"] is set (Urdu language selected)
+ */
+
+/* ==========================================================================
+   1. Content Areas - RTL
+   ========================================================================== */
+
+html[dir="rtl"] .markdown,
+html[dir="rtl"] .theme-doc-markdown,
+html[dir="rtl"] article {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Docusaurus content containers */
+html[dir="rtl"] .container,
+html[dir="rtl"] .row {
+  direction: rtl;
+}
+
+/* Main content wrapper */
+html[dir="rtl"] main {
+  direction: rtl;
+}
+
+/* Documentation content */
+html[dir="rtl"] .theme-doc-markdown > *,
+html[dir="rtl"] .markdown > * {
+  text-align: right;
+}
+
+/* Paragraphs and text blocks */
+html[dir="rtl"] p,
+html[dir="rtl"] li,
+html[dir="rtl"] td,
+html[dir="rtl"] th {
+  text-align: right;
+}
+
+/* Headings */
+html[dir="rtl"] h1,
+html[dir="rtl"] h2,
+html[dir="rtl"] h3,
+html[dir="rtl"] h4,
+html[dir="rtl"] h5,
+html[dir="rtl"] h6 {
+  text-align: right;
+}
+
+/* Lists */
+html[dir="rtl"] ul,
+html[dir="rtl"] ol {
+  padding-right: 2rem;
+  padding-left: 0;
+}
+
+/* Blockquotes */
+html[dir="rtl"] blockquote {
+  border-left: none;
+  border-right: 4px solid var(--ifm-color-emphasis-300);
+  padding-right: 1rem;
+  padding-left: 0;
+  margin-right: 0;
+  margin-left: 0;
+}
+
+/* Tables */
+html[dir="rtl"] table {
+  direction: rtl;
+}
+
+html[dir="rtl"] th,
+html[dir="rtl"] td {
+  text-align: right;
+}
+
+/* Admonitions (:::note, :::tip, etc.) */
+html[dir="rtl"] .admonition {
+  text-align: right;
+}
+
+html[dir="rtl"] .admonition-icon {
+  float: right;
+  margin-left: 0.5rem;
+  margin-right: 0;
+}
+
+/* Table of Contents (TOC) */
+html[dir="rtl"] .table-of-contents {
+  text-align: right;
+}
+
+html[dir="rtl"] .table-of-contents li {
+  padding-right: 0.5rem;
+  padding-left: 0;
+}
+
+/* Breadcrumbs */
+html[dir="rtl"] .breadcrumbs {
+  direction: rtl;
+}
+
+html[dir="rtl"] .breadcrumbs__item {
+  direction: rtl;
+}
+
+/* Pagination (Previous/Next) - Flip order */
+html[dir="rtl"] .pagination-nav {
+  direction: rtl;
+}
+
+html[dir="rtl"] .pagination-nav__item--prev {
+  text-align: right;
+}
+
+html[dir="rtl"] .pagination-nav__item--next {
+  text-align: left;
+}
+
+/* ==========================================================================
+   2. Navigation - RTL Support with Sidebar on Right
+   ========================================================================== */
+
+/* Navbar - Keep LTR for navigation items but support RTL layout */
+html[dir="rtl"] .navbar,
+html[dir="rtl"] .navbar__inner {
+  direction: rtl;
+}
+
+html[dir="rtl"] .navbar__items {
+  direction: ltr;
+}
+
+html[dir="rtl"] .navbar__item,
+html[dir="rtl"] .navbar__link {
+  direction: ltr;
+}
+
+/* Sidebar - Move to right side for RTL */
+html[dir="rtl"] .theme-doc-sidebar-container {
+  order: 2; /* Move sidebar to right in flex layout */
+}
+
+html[dir="rtl"] .theme-doc-sidebar-container,
+html[dir="rtl"] aside[class*="sidebar"] {
+  border-left: 1px solid var(--ifm-toc-border-color);
+  border-right: none;
+}
+
+html[dir="rtl"] .sidebar,
+html[dir="rtl"] .menu {
+  direction: ltr;
+  text-align: left;
+}
+
+html[dir="rtl"] .menu__link {
+  text-align: left;
+}
+
+/* Main doc wrapper - ensure proper flex order */
+html[dir="rtl"] .docMainContainer {
+  order: 1;
+}
+
+/* Footer - Keep LTR */
+html[dir="rtl"] .footer,
+html[dir="rtl"] .footer__links,
+html[dir="rtl"] .footer__items {
+  direction: ltr;
+  text-align: left;
+}
+
+html[dir="rtl"] .footer__link-item {
+  direction: ltr;
+}
+
+/* Mobile sidebar - slide from right */
+html[dir="rtl"] .navbar-sidebar {
+  left: auto;
+  right: 0;
+  direction: ltr;
+}
+
+html[dir="rtl"] .navbar-sidebar__item {
+  text-align: left;
+}
+
+/* ==========================================================================
+   3. Code Blocks - Always LTR
+   ========================================================================== */
+
+html[dir="rtl"] pre,
+html[dir="rtl"] code,
+html[dir="rtl"] .prism-code,
+html[dir="rtl"] .language-* {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: embed;
+}
+
+/* Code block container */
+html[dir="rtl"] .theme-code-block {
+  direction: ltr !important;
+}
+
+/* Inline code */
+html[dir="rtl"] code {
+  direction: ltr !important;
+  unicode-bidi: embed;
+}
+
+/* Code block line numbers */
+html[dir="rtl"] .token-line {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+/* Code copy button */
+html[dir="rtl"] .clean-btn {
+  left: auto;
+  right: 0.5rem;
+}
+
+/* ==========================================================================
+   4. Chat UI - RTL
+   ========================================================================== */
+
+/* Chat container */
+html[dir="rtl"] [class*="chat"],
+html[dir="rtl"] [class*="Chat"] {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Chat messages */
+html[dir="rtl"] .chat-message,
+html[dir="rtl"] [class*="message"] {
+  direction: rtl;
+}
+
+/* User messages - align right */
+html[dir="rtl"] .chat-message-user,
+html[dir="rtl"] [class*="message-user"],
+html[dir="rtl"] [class*="MessageUser"] {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+  text-align: right;
+}
+
+/* Assistant messages - align left */
+html[dir="rtl"] .chat-message-assistant,
+html[dir="rtl"] [class*="message-assistant"],
+html[dir="rtl"] [class*="MessageAssistant"] {
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+  text-align: right;
+}
+
+/* Chat input */
+html[dir="rtl"] .chat-input,
+html[dir="rtl"] [class*="ChatInput"],
+html[dir="rtl"] textarea[placeholder] {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Chat buttons */
+html[dir="rtl"] .chat-button {
+  direction: rtl;
+}
+
+/* ==========================================================================
+   5. Icon Flipping for RTL
+   ========================================================================== */
+
+/* Flip arrows */
+html[dir="rtl"] .icon-arrow-right::before {
+  content: '←';
+}
+
+html[dir="rtl"] .icon-arrow-left::before {
+  content: '→';
+}
+
+/* Flip chevrons */
+html[dir="rtl"] .menu__link--sublist-caret::after {
+  transform: scaleX(-1);
+}
+
+/* Flip external link icon */
+html[dir="rtl"] .menu__link--external::after {
+  transform: scaleX(-1);
+}
+
+/* Flip dropdown indicators */
+html[dir="rtl"] .navbar__link::after {
+  transform: scaleX(-1);
+}
+
+/* ==========================================================================
+   6. Spacing Adjustments (Logical Properties)
+   ========================================================================== */
+
+/* Use CSS logical properties for automatic RTL support */
+html[dir="rtl"] .padding-left {
+  padding-inline-start: 0;
+  padding-inline-end: var(--ifm-spacing-horizontal);
+}
+
+html[dir="rtl"] .padding-right {
+  padding-inline-start: var(--ifm-spacing-horizontal);
+  padding-inline-end: 0;
+}
+
+html[dir="rtl"] .margin-left {
+  margin-inline-start: 0;
+  margin-inline-end: var(--ifm-spacing-horizontal);
+}
+
+html[dir="rtl"] .margin-right {
+  margin-inline-start: var(--ifm-spacing-horizontal);
+  margin-inline-end: 0;
+}
+
+/* ==========================================================================
+   7. Search Box - Keep LTR
+   ========================================================================== */
+
+html[dir="rtl"] .navbar__search,
+html[dir="rtl"] [class*="search"] {
+  direction: ltr !important;
+}
+
+html[dir="rtl"] input[type="search"] {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+/* ==========================================================================
+   8. Language Switcher - Keep LTR
+   ========================================================================== */
+
+html[dir="rtl"] .navbar__item--language,
+html[dir="rtl"] [class*="LanguageSwitcher"] {
+  direction: ltr !important;
+}
+
+/* ==========================================================================
+   9. Miscellaneous Adjustments
+   ========================================================================== */
+
+/* Ensure images don't flip */
+html[dir="rtl"] img {
+  direction: ltr;
+}
+
+/* Keep badges/tags LTR */
+html[dir="rtl"] .badge,
+html[dir="rtl"] .tag {
+  direction: ltr;
+}
+
+/* Version badge */
+html[dir="rtl"] .theme-doc-version-badge {
+  direction: ltr;
+}
+
+/* Edit this page link */
+html[dir="rtl"] .theme-edit-this-page {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Last updated */
+html[dir="rtl"] .theme-last-updated {
+  direction: rtl;
+  text-align: right;
+}
+
+/* ==========================================================================
+   10. Additional Layout Fixes for Proper RTL Support
+   ========================================================================== */
+
+/* Ensure main doc page layout respects RTL with sidebar on right */
+html[dir="rtl"] .docPage {
+  display: flex;
+  flex-direction: row-reverse; /* Reverse to put sidebar on right */
+}
+
+/* Doc main container - ensure it's on the left side */
+html[dir="rtl"] .docMainContainer {
+  flex: 1;
+}
+
+/* Sidebar container positioning */
+html[dir="rtl"] .theme-doc-sidebar-container {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* TOC on the opposite side (left) in RTL */
+html[dir="rtl"] .theme-doc-toc-desktop {
+  border-right: 1px solid var(--ifm-toc-border-color);
+  border-left: none;
+}
+
+/* Fix details/summary disclosure triangles */
+html[dir="rtl"] summary {
+  list-style-position: inside;
+}
+
+html[dir="rtl"] details > summary::-webkit-details-marker {
+  margin-left: 0.5rem;
+  margin-right: 0;
+}
+
+/* Navbar items alignment */
+html[dir="rtl"] .navbar__items--right {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+html[dir="rtl"] .navbar__items--left {
+  margin-right: auto;
+  margin-left: 0;
+}
+
+/* Navbar logo */
+html[dir="rtl"] .navbar__logo {
+  margin-right: 0;
+  margin-left: 0.5rem;
+}
+
+html[dir="rtl"] .navbar__title {
+  margin-left: 0.5rem;
+  margin-right: 0;
+}
+
+/* Dropdown menus */
+html[dir="rtl"] .dropdown .dropdown__menu {
+  right: 0;
+  left: auto;
+  text-align: right;
+}
+
+/* Mobile toggle button positioning */
+html[dir="rtl"] .navbar__toggle {
+  margin-right: auto;
+  margin-left: 0;
+}
+
+/* Fix for scrollbar in RTL */
+html[dir="rtl"] ::-webkit-scrollbar {
+  left: 0;
+  right: auto;
+}
+
+/* Announcement bar */
+html[dir="rtl"] .announcementBar {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Doc version banner */
+html[dir="rtl"] .theme-doc-version-banner {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Tabs */
+html[dir="rtl"] .tabs {
+  direction: rtl;
+}
+
+html[dir="rtl"] .tabs__item {
+  margin-left: 1rem;
+  margin-right: 0;
+}
+
+html[dir="rtl"] .tabs__item:first-child {
+  margin-left: 0;
+}
+
+/* Cards and grid layouts */
+html[dir="rtl"] .card {
+  direction: rtl;
+  text-align: right;
+}
+
+html[dir="rtl"] .row {
+  direction: rtl;
+}
+
+html[dir="rtl"] .col {
+  direction: rtl;
+}
+
+/* Button icons */
+html[dir="rtl"] .button--secondary .button__icon {
+  margin-left: 0.3rem;
+  margin-right: 0;
+}
+
+/* Fix for hash link icons */
+html[dir="rtl"] .anchor {
+  margin-right: 0.5rem;
+  margin-left: 0;
+}
+
+/* Code block filename */
+html[dir="rtl"] .codeBlockTitle {
+  direction: ltr;
+  text-align: left;
+}
+
+/* Command line prompt */
+html[dir="rtl"] .token-line::before {
+  text-align: left;
+}

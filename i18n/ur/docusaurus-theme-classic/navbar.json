@@ -1,0 +1,18 @@
+{
+  "title": {
+    "message": "Physical AI & Humanoid Robotics",
+    "description": "The title in the navbar"
+  },
+  "item.label.Course": {
+    "message": "کورس",
+    "description": "Navbar item with label Course"
+  },
+  "item.label.Study Assistant": {
+    "message": "مطالعہ معاون",
+    "description": "Navbar item with label Study Assistant"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  }
+}

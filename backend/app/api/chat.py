@@ -7,9 +7,11 @@ Endpoints:
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.i18n import detect_language, get_fallback_language
 from app.db.session import get_db
 from app.models.schemas import ChatRequest, ChatResponse
 from app.services.rag import answer_chat_request
@@ -131,6 +133,28 @@ async def chat_endpoint(
             detail="Question is too long. Please keep it under 5000 characters.",
         )
 
+    # Detect language from user's question
+    timestamp = datetime.utcnow().isoformat()
+    detection_result = detect_language(request.question)
+    detected_lang = detection_result["detectedLanguage"]
+    confidence = detection_result["confidence"]
+    fallback_applied = detection_result["fallbackApplied"]
+
+    # Determine response language using fallback logic if needed
+    fallback_lang = get_fallback_language(confidence, request.preferredLanguage)
+    response_lang = fallback_lang if fallback_lang else detected_lang
+
+    # Log language analytics (no PII - no message content)
+    logger.info(
+        f"Chat language analytics - "
+        f"timestamp: {timestamp}, "
+        f"detected_input_language: {detected_lang}, "
+        f"confidence: {confidence:.2f}, "
+        f"requested_language: {request.preferredLanguage}, "
+        f"response_language: {response_lang}, "
+        f"fallback_applied: {fallback_applied or fallback_lang is not None}"
+    )
+
     # Process chat request through RAG pipeline
     try:
         response = await answer_chat_request(
@@ -183,9 +207,15 @@ async def chat_endpoint(
             exc_info=True,
         )
 
+    # Add language metadata to response
+    response.detectedInputLanguage = detected_lang
+    response.responseLanguage = response_lang
+    response.fallbackApplied = fallback_applied or (fallback_lang is not None)
+
     logger.info(
         f"Chat request completed successfully: "
-        f"answer_len={len(response.answer)}, citations={len(response.citations)}"
+        f"answer_len={len(response.answer)}, citations={len(response.citations)}, "
+        f"language: {response_lang}"
     )
 
     return response

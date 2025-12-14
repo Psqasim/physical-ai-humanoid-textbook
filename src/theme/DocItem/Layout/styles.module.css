@@ -1,0 +1,17 @@
+/**
+ * DocItem Layout Styles
+ */
+
+.docItemContainer {
+  max-width: 100%;
+}
+
+.docItemCol {
+  max-width: 75%;
+}
+
+@media (max-width: 996px) {
+  .docItemCol {
+    max-width: 100%;
+  }
+}

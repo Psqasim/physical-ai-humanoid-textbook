@@ -1,0 +1,528 @@
+---
+sidebar_position: 2
+title: Chapter 1 - Introduction to VLA
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 1: Vision-Language-Action Modelsの紹介
+
+<ChapterActionsBar chapterTitle="Introduction to VLA" />
+
+## はじめに
+
+2023年、Google DeepMindは**「リサイクル箱にゴミを捨てて」**のような複雑で自由形式の指示に従うことができるヒューマノイドロボットを実演しました。ロボットは部屋を見回し、テーブル上のくしゃくしゃの紙玉を識別し（視覚認識）、「捨てる」が掴んで処分することを意味すると理解し（言語グラウンディング）、材料タイプに基づいてゴミ箱よりリサイクル箱を選択し（推論）、投げる動作を実行しました（アクション生成）—すべて一文から。
+
+この能力は**Vision-Language-Action (VLA) モデル**に由来します。これは、コンピュータビジョン、自然言語処理、ロボット制御を統一システムに統合するニューラルネットワークです。各コンポーネント（オブジェクト検出、コマンド解析、モーション計画）に別々のモジュールを必要とする従来のロボットとは異なり、VLAはピクセルと単語からモーターコマンドへの**エンドツーエンドマッピング**を学習します。
+
+この章では、VLAの背後にあるアーキテクチャを理解し、事前トレーニング済みモデル（OpenVLA）を実行してシミュレートされたロボットを制御し、これらのモデルが新しい指示や環境にどれだけ一般化するかを評価します。最後には、VLAが汎用ヒューマノイドロボットへの最も有望な道である理由を理解できるでしょう。
+
+## VLAへの進化：ピクセルからアクションへ
+
+### 1. 従来のコンピュータビジョン（2010年代）
+
+**アプローチ**：タスク固有のCNN（AlexNet、ResNet、YOLO）をトレーニング
+```
+Image → CNN → Class labels ("mug," "bottle," "book")
+```
+
+**制限**：
+- 言語理解なし（「飲み物を持ってきて」に応答できない）
+- アクション生成なし（ラベルを出力、モーターコマンドではない）
+- タスクごとにラベル付きデータセットが必要（オブジェクト用ImageNet、セグメンテーション用COCO）
+
+### 2. Vision-Language Models (2020–2021)
+
+**ブレークスルー**：CLIP（OpenAI、2021）が画像とテキストを整列させることを学習
+```
+Image → Vision Encoder → Embedding
+Text → Language Encoder → Embedding
+Similarity(image_embedding, text_embedding) → Match score
+```
+
+**影響**：
+- ゼロショット分類：「猫の写真」というテキストが与えられれば、CLIPは猫固有のトレーニングなしで猫を識別できる
+- テキストベースの画像検索を可能に（「山の上の夕日の画像を見せて」）
+
+**制限**：
+- まだアクション生成なし—類似度スコアを出力、ロボットコマンドではない
+
+### 3. Vision-Language-Action (2022–現在)
+
+**ブレークスルー**：RT-1（Google、2022）がビジョン-言語モデルをアクション予測で拡張
+```
+Image + Text → VLA Model → Robot actions (joint angles, gripper state)
+```
+
+**革新**：アクションをモデルの語彙の**トークン**として扱い、単語や画像パッチと並べる。
+
+**例**：
+```
+Input: Image of a table + "pick up the red block"
+Output: [0.45, 0.12, 0.30, ...] (7-DoF arm joint positions)
+```
+
+## VLAアーキテクチャの理解：3つの柱
+
+### 柱1：Vision Encoder（見る）
+
+**目的**：生のピクセルを意味的表現に変換。
+
+**アーキテクチャオプション**：
+
+1. **Convolutional Neural Networks (CNNs)**
+   - 例：ResNet、EfficientNet
+   - 利点：高速、エッジデバイスで動作
+   - 欠点：長距離依存関係に対して効果が低い
+
+2. **Vision Transformers (ViT)**
+   - 画像をパッチに分割（例：16x16ピクセル）
+   - 自己注意でパッチを処理
+   - 利点：最先端の精度、空間関係をキャプチャ
+   - 欠点：計算コストが高い
+
+3. **CLIP Encoder**
+   - 4億の画像-テキストペアで事前トレーニング
+   - 視覚的概念とその言語的記述を理解
+   - 利点：新しいオブジェクトへのゼロショット一般化
+   - 欠点：インターネット規模の事前トレーニングデータが必要
+
+**例：ViT処理**
+
+```python
+import torch
+from transformers import ViTModel
+
+# Load pre-trained ViT
+vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
+
+# Input: 224x224 RGB image
+image = torch.randn(1, 3, 224, 224)
+
+# Forward pass
+outputs = vit(pixel_values=image)
+
+# Visual features: [batch_size, num_patches + 1, hidden_dim]
+# 197 tokens: 196 patches (14x14 grid) + 1 CLS token
+visual_features = outputs.last_hidden_state  # Shape: [1, 197, 768]
+
+print(f"Visual tokens: {visual_features.shape}")
+# Output: Visual tokens: torch.Size([1, 197, 768])
+```
+
+**重要な洞察**：197トークンのそれぞれが画像の空間領域を表します。CLSトークン（最初のトークン）は画像全体を要約します。
+
+### 柱2：Language Encoder（理解する）
+
+**目的**：自然言語の指示を意味ベクトルにエンコード。
+
+**アーキテクチャオプション**：
+
+1. **BERTスタイルエンコーダー**
+   - 例：BERT、RoBERTa
+   - 双方向注意（文全体を見る）
+   - 利点：強力な意味理解
+   - 欠点：テキストを生成できない（エンコーダーのみ）
+
+2. **T5 (Text-to-Text Transfer Transformer)**
+   - エンコーダー-デコーダーアーキテクチャ
+   - すべてのNLPタスクをテキスト生成として扱う
+   - 利点：柔軟、多様なタスクで事前トレーニング
+   - 欠点：BERTより大きい
+
+3. **GPTスタイルデコーダー**
+   - 例：GPT-3、GPT-4、LLaMA
+   - 自己回帰生成（次のトークンを予測）
+   - 利点：複雑な推論チェーンを生成可能
+   - 欠点：単方向（生成中は以前のトークンのみを見る）
+
+**例：T5処理**
+
+```python
+from transformers import T5Tokenizer, T5EncoderModel
+
+# Load T5 encoder
+tokenizer = T5Tokenizer.from_pretrained('t5-base')
+encoder = T5EncoderModel.from_pretrained('t5-base')
+
+# Input: Natural language instruction
+instruction = "Pick up the red block and place it in the box"
+
+# Tokenize
+inputs = tokenizer(instruction, return_tensors='pt', padding=True)
+# Token IDs: [7, 734, 95, 8, 1131, 2463, 11, 286, 34, 16, 8, 3](example)
+
+# Encode
+outputs = encoder(**inputs)
+
+# Language features: [batch_size, sequence_length, hidden_dim]
+language_features = outputs.last_hidden_state  # Shape: [1, 12, 768]
+
+print(f"Language tokens: {language_features.shape}")
+# Output: Language tokens: torch.Size([1, 12, 768])
+```
+
+**重要な洞察**：各トークンは単語またはサブワードを表します。モデルは文脈的関係を学習します（「red」は「block」を修飾、「place」は「it」に対するアクション）。
+
+### 柱3：Action Head（行動する）
+
+**目的**：ビジョンと言語を融合してロボットのアクションを予測。
+
+**アーキテクチャ**：
+
+```python
+class ActionHead(nn.Module):
+    def __init__(self, hidden_dim=768, action_dim=7):
+        super().__init__()
+        # Cross-modal fusion
+        self.cross_attention = nn.MultiheadAttention(hidden_dim, num_heads=8)
+
+        # Action prediction
+        self.action_mlp = nn.Sequential(
+            nn.Linear(hidden_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_dim)
+        )
+
+    def forward(self, visual_tokens, language_tokens):
+        # Cross-attend: language queries visual information
+        fused, _ = self.cross_attention(
+            query=language_tokens,      # What to do
+            key=visual_tokens,           # Where things are
+            value=visual_tokens          # Visual features
+        )
+
+        # Aggregate language tokens (mean pooling)
+        fused_mean = fused.mean(dim=1)  # [batch_size, hidden_dim]
+
+        # Predict actions
+        actions = self.action_mlp(fused_mean)  # [batch_size, action_dim]
+        return actions
+```
+
+**アクション表現**：
+
+1. **Joint Positions**（絶対）
+   - 直接制御：`[shoulder: 45°, elbow: 90°, wrist: 30°, ...]`
+   - 利点：正確、解釈しやすい
+   - 欠点：ロボット固有、形態間で一般化しない
+
+2. **Joint Velocities**（微分）
+   - 変化率：`[Δshoulder: +5°/s, Δelbow: -2°/s, ...]`
+   - 利点：よりスムーズな動き、学習しやすい
+   - 欠点：時間とともに誤差が蓄積
+
+3. **End-Effector Pose**（タスク空間）
+   - 6Dポーズ：`[x, y, z, roll, pitch, yaw]` + グリッパー状態
+   - 利点：ロボットアーム間で一般化（運動学に不変）
+   - 欠点：逆運動学ソルバーが必要
+
+**例：完全なVLAフォワードパス**
+
+```python
+class SimpleVLA(nn.Module):
+    def __init__(self, action_dim=7):
+        super().__init__()
+        self.vision_encoder = ViTModel.from_pretrained('google/vit-base-patch16-224')
+        self.language_encoder = T5EncoderModel.from_pretrained('t5-base')
+        self.action_head = ActionHead(hidden_dim=768, action_dim=action_dim)
+
+    def forward(self, image, instruction_ids):
+        # 1. Encode vision
+        visual_outputs = self.vision_encoder(pixel_values=image)
+        visual_tokens = visual_outputs.last_hidden_state  # [B, 197, 768]
+
+        # 2. Encode language
+        lang_outputs = self.language_encoder(input_ids=instruction_ids)
+        lang_tokens = lang_outputs.last_hidden_state  # [B, L, 768]
+
+        # 3. Fuse and predict actions
+        actions = self.action_head(visual_tokens, lang_tokens)  # [B, action_dim]
+
+        return actions
+
+# Usage
+model = SimpleVLA(action_dim=7)
+image = torch.randn(1, 3, 224, 224)  # Camera image
+instruction = tokenizer("pick up the cup", return_tensors='pt').input_ids
+
+actions = model(image, instruction)
+print(f"Predicted actions: {actions}")
+# Output: Predicted actions: tensor([[ 0.45,  0.12, -0.30, ...]])
+```
+
+## 事前トレーニング済みVLAの実行：OpenVLAデモ
+
+**OpenVLA**は、UC BerkeleyがリリースしたオープンソースのVLAで、コンシューマーハードウェアで動作するように設計されています。
+
+### Step 1: 依存関係のインストール
+
+```bash
+# Create virtual environment
+python3 -m venv ~/vla-env
+source ~/vla-env/bin/activate
+
+# Install OpenVLA
+pip install openvla transformers torch torchvision
+
+# Verify installation
+python -c "import openvla; print('OpenVLA version:', openvla.__version__)"
+```
+
+### Step 2: 事前トレーニング済みモデルのロード
+
+```python
+# load_openvla.py
+from openvla import OpenVLA
+import torch
+
+# Load model (downloads ~2GB checkpoint)
+model = OpenVLA.from_pretrained('openvla/openvla-7b')
+model.eval()  # Set to evaluation mode
+
+# Move to GPU if available
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+model = model.to(device)
+
+print(f"Model loaded on {device}")
+print(f"Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M")
+```
+
+### Step 3: 推論の実行
+
+```python
+# inference.py
+from PIL import Image
+import numpy as np
+
+# Load test image (robot camera view)
+image = Image.open('robot_view.jpg').resize((224, 224))
+
+# Instruction
+instruction = "pick up the red block"
+
+# Predict action
+with torch.no_grad():
+    action = model.predict(image=image, instruction=instruction)
+
+print(f"Predicted action: {action}")
+# Output: Predicted action: [0.52, 0.18, -0.25, 0.10, 0.05, -0.02, 1.0]
+# [shoulder_pan, shoulder_lift, elbow, wrist1, wrist2, wrist3, gripper_open]
+```
+
+### Step 4: 注意マップの可視化
+
+```python
+# Visualize which image regions the model attends to for each instruction token
+import matplotlib.pyplot as plt
+
+attention_map = model.get_attention_map(image, instruction)
+# attention_map: [num_instruction_tokens, 14, 14] (14x14 image patches)
+
+# Plot attention for "red" token
+token_idx = 3  # "red" is 4th token
+plt.imshow(attention_map[token_idx])
+plt.title("Attention for 'red'")
+plt.colorbar()
+plt.show()
+
+# The model should highlight red regions in the image
+```
+
+## VLA一般化の評価
+
+VLAは**ゼロショット一般化**に優れています—明示的にトレーニングされていないタスクを実行します。これをテストしましょう。
+
+### テスト1：新しいオブジェクト
+
+```python
+# Training: Model saw "pick up the mug"
+# Test: "pick up the cup"
+# Expected: Succeeds (cup ≈ mug in appearance and affordance)
+
+action = model.predict(image=cup_image, instruction="pick up the cup")
+# Verify: Action should grasp the cup
+```
+
+### テスト2：同義語の堅牢性
+
+```python
+# Training: "place the object in the box"
+# Test: "put the item inside the container"
+# Expected: Succeeds (language encoder understands synonyms)
+
+action = model.predict(image, "put the item inside the container")
+```
+
+### テスト3：新しい組み合わせ
+
+```python
+# Training: Seen "pick up red objects" and "pick up blocks" separately
+# Test: "pick up the green sphere"
+# Expected: Generalizes (composes "green" + "sphere")
+
+action = model.predict(image, "pick up the green sphere")
+```
+
+### テスト4：否定と制約
+
+```python
+# Test: "pick up the block but not the red one"
+# Challenge: Requires understanding negation
+# Expected: RT-2 handles this (leverages LLM reasoning)
+
+action = model.predict(image, "pick up the block but not the red one")
+```
+
+## ハンズオン演習：Isaac SimでのVLA制御ロボット
+
+**目的**：OpenVLAを展開して、NVIDIA Isaac Simでシミュレートされたロボットアームを制御。
+
+### Step 1: Isaac Sim環境のセットアップ
+
+```python
+# isaac_vla_env.py
+from isaacgym import gymapi
+import torch
+
+# Initialize Isaac Sim
+gym = gymapi.acquire_gym()
+sim = gym.create_sim(0, 0, gymapi.SIM_PHYSX, gymapi.SimParams())
+
+# Load Franka Panda robot arm
+asset_root = "assets"
+asset_file = "franka_panda.urdf"
+franka_asset = gym.load_asset(sim, asset_root, asset_file)
+
+# Create environment
+env = gym.create_env(sim, gymapi.Vec3(-1, -1, 0), gymapi.Vec3(1, 1, 2), 1)
+franka_handle = gym.create_actor(env, franka_asset, gymapi.Transform(), "franka", 0, 0)
+
+# Add camera
+camera_props = gymapi.CameraProperties()
+camera_handle = gym.create_camera_sensor(env, camera_props)
+gym.set_camera_location(camera_handle, env, gymapi.Vec3(1, 0, 1), gymapi.Vec3(0, 0, 0.5))
+
+print("Isaac Sim environment ready")
+```
+
+### Step 2: カメラ画像のキャプチャ
+
+```python
+# Render and capture RGB image
+gym.step_graphics(sim)
+gym.render_all_camera_sensors(sim)
+
+# Get camera image
+camera_image = gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
+image_array = np.reshape(camera_image, (224, 224, 4))[:, :, :3]  # Remove alpha channel
+
+# Convert to PIL Image
+from PIL import Image
+pil_image = Image.fromarray(image_array.astype(np.uint8))
+```
+
+### Step 3: VLA推論ループ
+
+```python
+# Load VLA model
+from openvla import OpenVLA
+vla_model = OpenVLA.from_pretrained('openvla/openvla-7b').cuda()
+
+# Control loop
+for step in range(1000):
+    # 1. Get instruction from user (or predefined)
+    instruction = "pick up the red block"
+
+    # 2. Capture current camera view
+    gym.step_graphics(sim)
+    gym.render_all_camera_sensors(sim)
+    camera_image = gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
+    image = Image.fromarray(np.reshape(camera_image, (224, 224, 4))[:, :, :3])
+
+    # 3. Predict action with VLA
+    with torch.no_grad():
+        action = vla_model.predict(image=image, instruction=instruction)
+
+    # 4. Apply action to robot
+    action_tensor = torch.tensor(action[:7], dtype=torch.float32)  # 7-DoF joint positions
+    gym.set_actor_dof_position_targets(env, franka_handle, action_tensor.cpu().numpy())
+
+    # 5. Step simulation
+    gym.simulate(sim)
+    gym.fetch_results(sim, True)
+
+    if step % 100 == 0:
+        print(f"Step {step}: Executing '{instruction}'")
+```
+
+### Step 4: パフォーマンスの評価
+
+```python
+# Test different instructions
+test_instructions = [
+    "pick up the red block",
+    "place the block in the box",
+    "move the green sphere to the left",
+    "grasp the mug by the handle"
+]
+
+success_count = 0
+for instruction in test_instructions:
+    # Run VLA
+    success = run_vla_episode(instruction, max_steps=500)
+    if success:
+        success_count += 1
+
+print(f"Success rate: {success_count}/{len(test_instructions)} ({success_count/len(test_instructions)*100:.1f}%)")
+```
+
+## 失敗モードの理解
+
+VLAは完璧ではありません。一般的な失敗ケース：
+
+### 1. 曖昧な指示
+```
+Instruction: "Pick it up"
+Problem: What is "it"? No object specified
+Solution: Require explicit object references
+```
+
+### 2. 物理的に不可能なタスク
+```
+Instruction: "Lift the table"
+Problem: Object too heavy for robot's actuators
+Solution: Add affordance reasoning (predict feasibility before attempting)
+```
+
+### 3. 分布シフト
+```
+Training: Brightly lit lab with white table
+Testing: Dimly lit home with wooden table
+Problem: Visual features differ (shadows, textures)
+Solution: Domain randomization during training
+```
+
+### 4. 長期タスク
+```
+Instruction: "Clean the entire kitchen"
+Problem: Requires 100+ sub-actions (open drawer, grab cloth, wipe counter, ...)
+Solution: Hierarchical planning (break into sub-goals)
+```
+
+## 次のステップ
+
+VLAの基礎をマスターしました：
+- Vision-language-actionアーキテクチャの理解
+- 事前トレーニング済みモデル（OpenVLA）の実行
+- シミュレーション（Isaac Sim）でのVLAの展開
+- 一般化と失敗モードの評価
+
+**Chapter 2: 独自のVLAの構築と展開**では、トレーニングデータを収集し、カスタムタスクでVLAを微調整し、実際のロボット制御のためにROS 2と統合し、複雑なマルチステップ手順のためのchain-of-thoughtプロンプティングなどの技術を適用します。
+
+**チャレンジ演習**：
+1. Isaac Sim環境を変更して**複数のオブジェクト**（ブロック、球、円柱）を含める
+2. VLA一般化をテスト：「赤いオブジェクトをすべて拾って」
+3. **アクション精度**を測定：予測されたグリッパーポーズはオブジェクトの位置と一致するか？
+4. **ビジョン事前トレーニング**の有無でパフォーマンスを比較（ランダム初期化 vs. CLIP初期化）
+5. **安全チェック**を実装：VLAが衝突を引き起こすアクションを予測した場合、停止して人間の介入を要求

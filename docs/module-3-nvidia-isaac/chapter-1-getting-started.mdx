@@ -5,19 +5,481 @@ title: Chapter 1 - Getting Started with Isaac
 
 import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
 
-# Chapter 1: Getting Started with NVIDIA Isaac
+# Chapter 1: Getting Started with NVIDIA Isaac Sim
 
 <ChapterActionsBar chapterTitle="Getting Started with NVIDIA Isaac" />
 
-Learn the basics of NVIDIA Isaac Sim and how to run your first AI-powered robot simulation.
+## Introduction
 
-## Topics Covered
+Imagine training a humanoid robot to recognize and pick up objects from a cluttered table. Using traditional methods, you'd need to manually label thousands of images showing objects from different angles, lighting conditions, and backgrounds—a process taking weeks of human effort. With **NVIDIA Isaac Sim**, you can generate 10,000 perfectly labeled images in hours by rendering synthetic scenes with randomized object poses, lighting, and camera angles. This synthetic data trains perception models that achieve real-world accuracy comparable to models trained on human-labeled data.
 
-- Installing Isaac Sim (Omniverse platform)
-- Understanding the Isaac Sim interface
-- Loading pre-built robot models (Carter, Jetbot)
-- Running perception models for object detection
+Isaac Sim represents a paradigm shift in robotics development: instead of testing algorithms on expensive physical robots (risking damage and requiring manual resets), you develop and validate everything in a **photorealistic virtual world**. Isaac Sim combines NVIDIA Omniverse's rendering engine with PhysX physics to create Digital Twins that look and behave like the real world. In this chapter, you'll install Isaac Sim, navigate its interface, spawn robots, run simulations with ROS 2 integration, and generate your first synthetic dataset.
 
-## Hands-On Exercise
+## What Makes Isaac Sim Different?
 
-By the end of this chapter, you'll run an object detection model on a simulated robot camera feed in Isaac Sim.
+You've already worked with Gazebo in Module 2. So why learn another simulator? Here's the comparison:
+
+| Feature | Gazebo | Isaac Sim |
+|---------|--------|-----------|
+| **Rendering** | OpenGL (basic) | RTX ray tracing (photorealistic) |
+| **Physics Engine** | ODE, Bullet, DART | NVIDIA PhysX 5 |
+| **GPU Acceleration** | Limited | Full (physics + rendering) |
+| **Synthetic Data** | Manual export | Built-in annotation tools |
+| **AI Integration** | External | Native (TensorRT, Triton) |
+| **Parallel Sim** | Multi-process (slow) | Isaac Gym (GPU-native) |
+| **Best For** | Physics validation | Perception training, RL |
+
+**Key Advantages of Isaac Sim**:
+1. **Photorealism**: Renders ray-traced shadows, reflections, and global illumination—essential for training vision models
+2. **Synthetic Data Generation**: Automatic bounding boxes, segmentation masks, depth maps
+3. **Domain Randomization**: Randomize materials, lighting, object poses to improve sim-to-real transfer
+4. **ROS 2 Native**: Built-in ROS 2 bridge (no separate plugins needed)
+5. **Scalability**: Run headless on cloud GPUs for large-scale data generation
+
+## Installation: Setting Up Isaac Sim
+
+Isaac Sim runs on NVIDIA Omniverse, a platform for 3D simulation and collaboration. Here's the complete installation process:
+
+### System Requirements
+
+**Minimum**:
+- **OS**: Ubuntu 20.04 or 22.04 (Windows 10/11 via WSL2 possible but limited)
+- **GPU**: NVIDIA GTX 1660 or newer with 6GB+ VRAM
+- **Drivers**: NVIDIA driver 515.x or newer
+- **RAM**: 16GB system memory
+- **Storage**: 50GB free space
+
+**Recommended**:
+- **GPU**: NVIDIA RTX 3060 or better (for ray tracing)
+- **RAM**: 32GB
+- **Storage**: SSD with 100GB free space
+
+**Check your GPU**:
+```bash
+nvidia-smi
+# Look for driver version (should be 515+) and GPU model
+```
+
+### Step-by-Step Installation
+
+#### 1. Install NVIDIA Drivers (if needed)
+
+```bash
+# Check current driver
+nvidia-smi
+
+# If driver is outdated, install latest
+sudo apt-get update
+sudo apt-get install nvidia-driver-525  # Or latest available
+sudo reboot
+```
+
+#### 2. Download NVIDIA Omniverse Launcher
+
+```bash
+# Download Omniverse Launcher
+cd ~/Downloads
+wget https://install.launcher.omniverse.nvidia.com/installers/omniverse-launcher-linux.AppImage
+
+# Make executable
+chmod +x omniverse-launcher-linux.AppImage
+
+# Run launcher
+./omniverse-launcher-linux.AppImage
+```
+
+The Omniverse Launcher opens—a centralized hub for installing Isaac Sim and other NVIDIA apps.
+
+#### 3. Install Isaac Sim via Launcher
+
+1. **Sign in**: Create/login to NVIDIA account (free)
+2. **Navigate to Exchange tab**: Find "Isaac Sim"
+3. **Click Install**: Select latest version (e.g., Isaac Sim 2023.1.1)
+4. **Choose location**: Default is `~/.local/share/ov/pkg/isaac_sim-*`
+5. **Wait for download**: ~20GB download (10-30 minutes depending on connection)
+
+#### 4. Launch Isaac Sim
+
+```bash
+# Option 1: Launch from Omniverse Launcher (GUI)
+# Click "Launch" button next to Isaac Sim
+
+# Option 2: Command-line launch
+~/.local/share/ov/pkg/isaac_sim-2023.1.1/isaac-sim.sh
+
+# Option 3: Python script launch (for automation)
+~/.local/share/ov/pkg/isaac_sim-2023.1.1/python.sh my_simulation.py
+```
+
+**First Launch**: Expect 2-5 minutes as Isaac Sim initializes shaders and caches.
+
+**Troubleshooting**:
+- **Error: "GPU not supported"**: Upgrade drivers or use `--cpu` flag (very slow)
+- **Error: "Vulkan initialization failed"**: Install `vulkan-utils` package
+- **Black screen on launch**: Update GPU drivers and check OpenGL support
+
+## Understanding the Isaac Sim Interface
+
+When Isaac Sim opens, you'll see a professional 3D interface similar to Blender or Unreal Engine. Let's break down the key panels:
+
+### Main Panels
+
+1. **Viewport (center)**: 3D view of your simulation world
+   - **Navigation**: Middle-mouse drag (pan), Right-mouse drag (rotate), Scroll (zoom)
+   - **Playback controls**: Play/Pause/Stop simulation at the bottom
+   - **Camera selector**: Switch between cameras (perspective, orthographic, sensor views)
+
+2. **Stage Panel (left)**: Scene hierarchy showing all objects
+   - **World**: Root of the scene
+   - **defaultLight**: Environmental lighting
+   - **GroundPlane**: Floor surface
+   - **Robots/Assets**: Spawned models appear here
+
+3. **Property Panel (right)**: Inspector for selected objects
+   - **Transform**: Position, rotation, scale
+   - **Physics**: Mass, friction, collision properties
+   - **Sensors**: Camera, LiDAR configuration
+   - **Materials**: Albedo, roughness, metallic properties (PBR materials)
+
+4. **Content Browser (bottom)**: Asset library
+   - Navigate to `localhost/Isaac/Robots/` for pre-built robot models
+   - NVIDIA assets (Carter, Jetbot, Franka Panda manipulator)
+   - Import custom URDF/USD models
+
+5. **Python Console (Window → Script Editor)**: Interactive Python REPL
+   - Execute commands like `stage.GetPrimAtPath("/World/Robot")`
+   - Load scripts for automation
+
+### Keyboard Shortcuts (Essential)
+
+- **F**: Focus camera on selected object
+- **Spacebar**: Play/Pause simulation
+- **Ctrl+S**: Save scene
+- **Ctrl+O**: Open scene
+- **Delete**: Remove selected object
+- **W/E/R**: Move/Rotate/Scale tools
+- **Z**: Undo
+- **Alt+Left-click**: Select object in viewport
+
+## Loading Your First Robot: The NVIDIA Carter
+
+NVIDIA provides several pre-built robots for testing. Let's start with **Carter**—a differential-drive mobile robot with stereo cameras and LiDAR.
+
+### Step 1: Create a New Scene
+
+```
+1. File → New (or Ctrl+N)
+2. Confirm you want to close the current scene
+```
+
+You'll see an empty stage with a ground plane.
+
+### Step 2: Spawn Carter Robot
+
+```python
+# Method 1: Drag-and-drop (easiest)
+# 1. Open Content Browser (bottom panel)
+# 2. Navigate to: localhost/Isaac/Robots/Carter/
+# 3. Drag "carter_v1.usd" into the viewport
+
+# Method 2: Python script (for automation)
+# Open Script Editor (Window → Script Editor)
+# Paste and run:
+
+from pxr import Usd, UsdGeom
+import omni.usd
+
+stage = omni.usd.get_context().get_stage()
+
+# Load Carter robot
+carter_path = "/World/Carter"
+omni.kit.commands.execute(
+    "CreateReference",
+    usd_context=omni.usd.get_context(),
+    path_to=carter_path,
+    asset_path="omniverse://localhost/Isaac/Robots/Carter/carter_v1.usd"
+)
+
+# Position Carter at origin
+carter_prim = stage.GetPrimAtPath(carter_path)
+xform = UsdGeom.Xformable(carter_prim)
+xform.ClearXformOpOrder()
+xform.AddTranslateOp().Set((0, 0, 0))
+
+print(f"Carter robot spawned at {carter_path}")
+```
+
+**Result**: Carter appears in the viewport. Use the mouse to rotate the view and inspect it.
+
+### Step 3: Configure Physics
+
+For the robot to interact with gravity and collisions:
+
+```
+1. Select Carter in the Stage panel (/World/Carter)
+2. Property panel → Physics section
+3. Ensure "Rigid Body" is enabled
+4. Check collision meshes are assigned
+```
+
+### Step 4: Add Basic Lighting
+
+```
+1. Create → Light → Dome Light
+2. Property panel:
+   - Intensity: 1000
+   - Color: White (1, 1, 1)
+3. Enable "Shadows" for realistic rendering
+```
+
+### Step 5: Run the Simulation
+
+```
+1. Press Spacebar (or click Play button)
+2. Carter should settle onto the ground due to gravity
+3. Press Spacebar again to pause
+```
+
+**Observation**: Carter's wheels rotate slightly as physics stabilizes. This confirms physics simulation is active.
+
+## Controlling the Robot: ROS 2 Integration
+
+Static robots aren't useful—let's make Carter move using ROS 2 commands.
+
+### Enabling the ROS 2 Bridge
+
+Isaac Sim includes a built-in ROS 2 bridge (no separate installation needed):
+
+```
+1. Window → Extensions
+2. Search for "ROS2 Bridge"
+3. Enable "omni.isaac.ros2_bridge"
+4. Wait for extension to load (green checkmark)
+```
+
+**Verify ROS 2 is detected**:
+```bash
+# In a terminal outside Isaac Sim
+ros2 topic list
+# Should show: /rosout, /parameter_events (ROS 2 core is running)
+```
+
+### Adding ROS 2 Publishers to Carter
+
+We'll add publishers for:
+- **Camera feed** (`/camera/rgb/image_raw`)
+- **LiDAR scan** (`/scan`)
+- **Odometry** (`/odom`)
+
+```python
+# In Isaac Sim Script Editor
+import omni.graph.core as og
+
+# Create ROS2 camera publisher
+camera_graph = og.Controller.create_graph({"graph_path": "/ActionGraph_Camera", "evaluator_name": "execution"})
+
+# Add camera component to Carter's camera
+camera_node = og.Controller.create_node(
+    camera_graph,
+    "omni.isaac.ros2_bridge.ROS2CameraHelper",
+    attributes={
+        "cameraPath": "/World/Carter/chassis/stereo_cam_left",
+        "topicName": "camera/rgb/image_raw",
+        "frameId": "camera_link"
+    }
+)
+
+print("Camera publisher configured: /camera/rgb/image_raw")
+```
+
+### Controlling Carter with Twist Messages
+
+Isaac Sim's Carter includes a differential drive controller that listens to `/cmd_vel`:
+
+```bash
+# Terminal 1: Run Isaac Sim (already running)
+
+# Terminal 2: Send velocity commands
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.5}, angular: {z: 0.0}}" --rate 10
+
+# Carter should move forward in the simulation
+```
+
+**Keyboard Teleop** (easier):
+```bash
+# Install teleop keyboard
+sudo apt-get install ros-humble-teleop-twist-keyboard
+
+# Run teleop
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+  --ros-args --remap cmd_vel:=/cmd_vel
+
+# Use i/j/k/l keys to drive Carter
+```
+
+## Visualizing Sensor Data with RViz
+
+Let's confirm camera and LiDAR data streams:
+
+```bash
+# Terminal 1: Isaac Sim (running)
+
+# Terminal 2: Launch RViz
+rviz2
+
+# In RViz:
+# 1. Set Fixed Frame to "odom"
+# 2. Add → Image → Set topic to /camera/rgb/image_raw
+# 3. Add → LaserScan → Set topic to /scan
+# 4. Add → RobotModel (if Carter URDF is available)
+```
+
+**Expected Output**:
+- RViz displays Carter's camera feed (photorealistic warehouse view if you loaded an environment)
+- LiDAR scan shows 360° distance measurements
+- Robot model shows Carter's pose
+
+## Synthetic Data Generation: Creating Labeled Datasets
+
+One of Isaac Sim's killer features is **automated annotation**. Let's generate a dataset of labeled images for object detection.
+
+### Step 1: Create a Cluttered Scene
+
+```
+1. Content Browser → localhost/Isaac/Props/
+2. Drag objects into the scene:
+   - Props/YCB/Crackerbox
+   - Props/YCB/MustardBottle
+   - Props/YCB/TomatoSoup
+3. Randomly position them on a table
+```
+
+### Step 2: Enable Replicator (Synthetic Data Generator)
+
+```python
+# Script Editor
+import omni.replicator.core as rep
+
+# Define camera for rendering
+camera = rep.create.camera(position=(1, 1, 1), look_at=(0, 0, 0))
+
+# Define randomizers
+with rep.trigger.on_frame(num_frames=100):
+    with rep.create.group(["/World/Crackerbox", "/World/MustardBottle", "/World/TomatoSoup"]):
+        rep.modify.pose(
+            position=rep.distribution.uniform((-0.5, -0.5, 0), (0.5, 0.5, 0.2)),
+            rotation=rep.distribution.uniform((0, 0, 0), (360, 360, 360))
+        )
+
+    # Randomize lighting
+    with rep.create.group(["/World/DomeLight"]):
+        rep.modify.attribute("inputs:intensity", rep.distribution.uniform(500, 2000))
+
+# Attach writers (output formats)
+rp_writer = rep.WriterRegistry.get("BasicWriter")
+rp_writer.initialize(
+    output_dir="~/isaac_sim_data/",
+    rgb=True,
+    bounding_box_2d_tight=True,
+    semantic_segmentation=True
+)
+rp_writer.attach([camera])
+
+# Run replicator
+rep.orchestrator.run()
+```
+
+**Result**: Isaac Sim generates 100 images with:
+- RGB images (`rgb/`)
+- Bounding boxes in COCO format (`bounding_box_2d_tight/`)
+- Segmentation masks (`semantic_segmentation/`)
+
+**Use Case**: Train a YOLOv8 model using these 100 synthetic images instead of manually labeling real photos.
+
+## Hands-On Exercise: Build a Perception-Controlled Robot
+
+**Objective**: Make Carter navigate autonomously by detecting obstacles using its camera and a pre-trained object detection model.
+
+### Step 1: Load a Warehouse Environment
+
+```
+1. Content Browser → localhost/Isaac/Environments/
+2. Load "Simple_Warehouse.usd"
+3. Spawn Carter in the warehouse
+```
+
+### Step 2: Run Object Detection (YOLO) on Camera Feed
+
+```bash
+# Install Isaac ROS packages (on host machine, not Isaac Sim)
+sudo apt-get install ros-humble-isaac-ros-yolov8
+
+# Launch YOLO node
+ros2 launch isaac_ros_yolov8 isaac_ros_yolov8.launch.py \
+  input_topic:=/camera/rgb/image_raw \
+  output_topic:=/detections
+
+# Detections published as vision_msgs/Detection2DArray
+```
+
+### Step 3: Create a Simple Obstacle Avoidance Controller
+
+```python
+# obstacle_avoid.py
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from vision_msgs.msg import Detection2DArray
+
+class ObstacleAvoider(Node):
+    def __init__(self):
+        super().__init__('obstacle_avoider')
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.det_sub = self.create_subscription(Detection2DArray, '/detections', self.detection_callback, 10)
+
+    def detection_callback(self, msg):
+        twist = Twist()
+        if len(msg.detections) > 0:
+            # Obstacle detected in center -> turn
+            twist.linear.x = 0.0
+            twist.angular.z = 0.5
+        else:
+            # No obstacle -> move forward
+            twist.linear.x = 0.3
+            twist.angular.z = 0.0
+
+        self.cmd_pub.publish(twist)
+
+def main():
+    rclpy.init()
+    node = ObstacleAvoider()
+    rclpy.spin(node)
+
+if __name__ == '__main__':
+    main()
+```
+
+**Run it**:
+```bash
+python3 obstacle_avoid.py
+```
+
+**Result**: Carter drives forward until it detects an object (person, box, robot), then turns to avoid it.
+
+## Next Steps
+
+You've now mastered Isaac Sim basics:
+- Installation and interface navigation
+- Spawning and controlling robots
+- ROS 2 integration for sensor data streaming
+- Synthetic data generation for perception models
+
+In **Chapter 2: Isaac Gym for Reinforcement Learning**, you'll train a humanoid robot to walk from scratch using GPU-accelerated parallel simulation. You'll set up 4,096 parallel environments, define reward functions, and watch your robot learn to balance and locomote in hours instead of weeks.
+
+**Challenge Exercise**:
+1. Replace Carter with a humanoid robot (e.g., `localhost/Isaac/Robots/Franka/franka.usd`)
+2. Add multiple cameras at different angles
+3. Generate a dataset of 1,000 images with randomized lighting and object poses
+4. Train a simple object classifier (logistic regression or small CNN) on the synthetic data
+5. Test it on real images and measure accuracy (sim-to-real validation)

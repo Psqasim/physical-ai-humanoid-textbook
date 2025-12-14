@@ -1,0 +1,528 @@
+---
+sidebar_position: 2
+title: Chapter 1 - Introduction to VLA
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 1: Vision-Language-Action Models کا تعارف
+
+<ChapterActionsBar chapterTitle="Introduction to VLA" />
+
+## تعارف
+
+2023 میں، Google DeepMind نے ایک humanoid robot کا مظاہرہ کیا جو پیچیدہ، آزاد ہدایات کی پیروی کر سکتا تھا جیسے **"کچرے کو ری سائیکلنگ بن میں پھینک دو"**۔ robot نے کمرے میں دیکھا، میز پر موجود کاغذ کی گیند کی شناخت کی (visual perception)، سمجھا کہ "پھینک دو" کا مطلب پکڑنا اور ٹھکانے لگانا ہے (language grounding)، مواد کی قسم کی بنیاد پر کچرے کے ڈبے کے بجائے ری سائیکلنگ بن کا انتخاب کیا (reasoning)، اور پھینکنے کی حرکت کو انجام دیا (action generation)—یہ سب کچھ ایک ہی جملے سے۔
+
+یہ صلاحیت **Vision-Language-Action (VLA) models** سے آتی ہے، neural networks جو computer vision، natural language processing، اور robotic control کو ایک متحد نظام میں ضم کرتے ہیں۔ روایتی robots کے برعکس جنہیں ہر component کے لیے الگ modules کی ضرورت ہوتی ہے (object detection، command parsing، motion planning)، VLAs ایک **end-to-end mapping** سیکھتے ہیں pixels اور الفاظ سے motor commands تک۔
+
+اس chapter میں، آپ VLAs کے پیچھے کی architecture کو سمجھیں گے، ایک pre-trained model (OpenVLA) چلائیں گے simulated robot کو control کرنے کے لیے، اور یہ evaluate کریں گے کہ یہ models نئی ہدایات اور ماحول میں کتنی اچھی طرح generalize کرتے ہیں۔ آخر میں، آپ سمجھیں گے کہ کیوں VLAs عام مقصد کے humanoid robots کی طرف سب سے امید افزا راستہ ہیں۔
+
+## VLAs کی ارتقا: Pixels سے Actions تک
+
+### 1. Traditional Computer Vision (2010s)
+
+**طریقہ**: task-specific CNNs کو train کریں (AlexNet، ResNet، YOLO)
+```
+Image → CNN → Class labels ("mug," "bottle," "book")
+```
+
+**محدودیتیں**:
+- language کی سمجھ نہیں (جواب نہیں دے سکتے "bring me a drink")
+- action generation نہیں (labels output کرتے ہیں، motor commands نہیں)
+- ہر task کے لیے labeled datasets کی ضرورت (ImageNet objects کے لیے، COCO segmentation کے لیے)
+
+### 2. Vision-Language Models (2020–2021)
+
+**پیش رفت**: CLIP (OpenAI، 2021) images اور text کو align کرنا سیکھتا ہے
+```
+Image → Vision Encoder → Embedding
+Text → Language Encoder → Embedding
+Similarity(image_embedding, text_embedding) → Match score
+```
+
+**اثر**:
+- Zero-shot classification: text "a photo of a cat" دیا جائے تو، CLIP بلیوں کی شناخت کر سکتا ہے بغیر cat-specific training کے
+- text-based image search ممکن بناتا ہے ("show me images of sunsets over mountains")
+
+**محدودیتیں**:
+- ابھی بھی action generation نہیں—similarity scores output کرتا ہے، robot commands نہیں
+
+### 3. Vision-Language-Action (2022–Present)
+
+**پیش رفت**: RT-1 (Google، 2022) vision-language models کو action prediction کے ساتھ extend کرتا ہے
+```
+Image + Text → VLA Model → Robot actions (joint angles, gripper state)
+```
+
+**انوویشن**: actions کو model کی vocabulary میں **tokens** کے طور پر treat کریں، الفاظ اور image patches کے ساتھ۔
+
+**مثال**:
+```
+Input: Image of a table + "pick up the red block"
+Output: [0.45, 0.12, 0.30, ...] (7-DoF arm joint positions)
+```
+
+## VLA Architecture کو سمجھنا: تین ستون
+
+### ستون 1: Vision Encoder (دیکھنا)
+
+**مقصد**: خام pixels کو semantic representations میں تبدیل کریں۔
+
+**Architecture کے اختیارات**:
+
+1. **Convolutional Neural Networks (CNNs)**
+   - مثالیں: ResNet، EfficientNet
+   - فوائد: تیز، edge devices پر کام کرتے ہیں
+   - نقصانات: long-range dependencies کے لیے کم مؤثر
+
+2. **Vision Transformers (ViT)**
+   - image کو patches میں تقسیم کرتا ہے (مثلاً، 16x16 pixels)
+   - patches کو self-attention سے process کرتا ہے
+   - فوائد: State-of-the-art accuracy، spatial relationships کو capture کرتا ہے
+   - نقصانات: Computationally مہنگا
+
+3. **CLIP Encoder**
+   - 400M image-text pairs پر pre-trained
+   - visual concepts + ان کی لسانی تفصیلات کو سمجھتا ہے
+   - فوائد: نئے objects کے لیے zero-shot generalization
+   - نقصانات: internet-scale pre-training data کی ضرورت
+
+**مثال: ViT Processing**
+
+```python
+import torch
+from transformers import ViTModel
+
+# Load pre-trained ViT
+vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
+
+# Input: 224x224 RGB image
+image = torch.randn(1, 3, 224, 224)
+
+# Forward pass
+outputs = vit(pixel_values=image)
+
+# Visual features: [batch_size, num_patches + 1, hidden_dim]
+# 197 tokens: 196 patches (14x14 grid) + 1 CLS token
+visual_features = outputs.last_hidden_state  # Shape: [1, 197, 768]
+
+print(f"Visual tokens: {visual_features.shape}")
+# Output: Visual tokens: torch.Size([1, 197, 768])
+```
+
+**کلیدی بصیرت**: 197 tokens میں سے ہر ایک image کے ایک spatial region کی نمائندگی کرتا ہے۔ CLS token (پہلا token) پوری image کا خلاصہ کرتا ہے۔
+
+### ستون 2: Language Encoder (سمجھنا)
+
+**مقصد**: natural language ہدایات کو semantic vectors میں encode کریں۔
+
+**Architecture کے اختیارات**:
+
+1. **BERT-style Encoders**
+   - مثالیں: BERT، RoBERTa
+   - Bidirectional attention (پوری sentence دیکھتا ہے)
+   - فوائد: مضبوط semantic understanding
+   - نقصانات: text generate نہیں کر سکتے (encoder-only)
+
+2. **T5 (Text-to-Text Transfer Transformer)**
+   - Encoder-decoder architecture
+   - تمام NLP tasks کو text generation کے طور پر treat کرتا ہے
+   - فوائد: لچکدار، متنوع tasks پر pre-trained
+   - نقصانات: BERT سے بڑا
+
+3. **GPT-style Decoders**
+   - مثالیں: GPT-3، GPT-4، LLaMA
+   - Autoregressive generation (اگلا token پیش گوئی کرتا ہے)
+   - فوائد: پیچیدہ reasoning chains generate کر سکتے ہیں
+   - نقصانات: Unidirectional (generation کے دوران صرف پچھلے tokens دیکھتے ہیں)
+
+**مثال: T5 Processing**
+
+```python
+from transformers import T5Tokenizer, T5EncoderModel
+
+# Load T5 encoder
+tokenizer = T5Tokenizer.from_pretrained('t5-base')
+encoder = T5EncoderModel.from_pretrained('t5-base')
+
+# Input: Natural language instruction
+instruction = "Pick up the red block and place it in the box"
+
+# Tokenize
+inputs = tokenizer(instruction, return_tensors='pt', padding=True)
+# Token IDs: [7, 734, 95, 8, 1131, 2463, 11, 286, 34, 16, 8, 3](example)
+
+# Encode
+outputs = encoder(**inputs)
+
+# Language features: [batch_size, sequence_length, hidden_dim]
+language_features = outputs.last_hidden_state  # Shape: [1, 12, 768]
+
+print(f"Language tokens: {language_features.shape}")
+# Output: Language tokens: torch.Size([1, 12, 768])
+```
+
+**کلیدی بصیرت**: ہر token ایک لفظ یا subword کی نمائندگی کرتا ہے۔ model سیاق و سباق کے تعلقات سیکھتا ہے ("red" "block" کو modify کرتا ہے، "place" "it" پر action ہے)۔
+
+### ستون 3: Action Head (عمل کرنا)
+
+**مقصد**: vision اور language کو fuse کریں robot actions کی پیش گوئی کرنے کے لیے۔
+
+**Architecture**:
+
+```python
+class ActionHead(nn.Module):
+    def __init__(self, hidden_dim=768, action_dim=7):
+        super().__init__()
+        # Cross-modal fusion
+        self.cross_attention = nn.MultiheadAttention(hidden_dim, num_heads=8)
+
+        # Action prediction
+        self.action_mlp = nn.Sequential(
+            nn.Linear(hidden_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_dim)
+        )
+
+    def forward(self, visual_tokens, language_tokens):
+        # Cross-attend: language queries visual information
+        fused, _ = self.cross_attention(
+            query=language_tokens,      # What to do
+            key=visual_tokens,           # Where things are
+            value=visual_tokens          # Visual features
+        )
+
+        # Aggregate language tokens (mean pooling)
+        fused_mean = fused.mean(dim=1)  # [batch_size, hidden_dim]
+
+        # Predict actions
+        actions = self.action_mlp(fused_mean)  # [batch_size, action_dim]
+        return actions
+```
+
+**Action Representations**:
+
+1. **Joint Positions** (Absolute)
+   - براہ راست control: `[shoulder: 45°, elbow: 90°, wrist: 30°, ...]`
+   - فوائد: درست، تشریح میں آسان
+   - نقصانات: Robot-specific، morphologies میں generalize نہیں ہوتا
+
+2. **Joint Velocities** (Differential)
+   - تبدیلی کی شرح: `[Δshoulder: +5°/s, Δelbow: -2°/s, ...]`
+   - فوائد: ہموار حرکت، سیکھنا آسان
+   - نقصانات: وقت کے ساتھ غلطی جمع ہوتی ہے
+
+3. **End-Effector Pose** (Task Space)
+   - 6D pose: `[x, y, z, roll, pitch, yaw]` + gripper state
+   - فوائد: robot arms میں generalize ہوتا ہے (kinematics سے invariant)
+   - نقصانات: inverse kinematics solver کی ضرورت
+
+**مثال: مکمل VLA Forward Pass**
+
+```python
+class SimpleVLA(nn.Module):
+    def __init__(self, action_dim=7):
+        super().__init__()
+        self.vision_encoder = ViTModel.from_pretrained('google/vit-base-patch16-224')
+        self.language_encoder = T5EncoderModel.from_pretrained('t5-base')
+        self.action_head = ActionHead(hidden_dim=768, action_dim=action_dim)
+
+    def forward(self, image, instruction_ids):
+        # 1. Encode vision
+        visual_outputs = self.vision_encoder(pixel_values=image)
+        visual_tokens = visual_outputs.last_hidden_state  # [B, 197, 768]
+
+        # 2. Encode language
+        lang_outputs = self.language_encoder(input_ids=instruction_ids)
+        lang_tokens = lang_outputs.last_hidden_state  # [B, L, 768]
+
+        # 3. Fuse and predict actions
+        actions = self.action_head(visual_tokens, lang_tokens)  # [B, action_dim]
+
+        return actions
+
+# Usage
+model = SimpleVLA(action_dim=7)
+image = torch.randn(1, 3, 224, 224)  # Camera image
+instruction = tokenizer("pick up the cup", return_tensors='pt').input_ids
+
+actions = model(image, instruction)
+print(f"Predicted actions: {actions}")
+# Output: Predicted actions: tensor([[ 0.45,  0.12, -0.30, ...]])
+```
+
+## Pre-Trained VLA چلانا: OpenVLA Demo
+
+**OpenVLA** UC Berkeley کی طرف سے جاری کردہ ایک open-source VLA ہے، consumer hardware پر چلانے کے لیے ڈیزائن کیا گیا۔
+
+### Step 1: Dependencies Install کریں
+
+```bash
+# Create virtual environment
+python3 -m venv ~/vla-env
+source ~/vla-env/bin/activate
+
+# Install OpenVLA
+pip install openvla transformers torch torchvision
+
+# Verify installation
+python -c "import openvla; print('OpenVLA version:', openvla.__version__)"
+```
+
+### Step 2: Pre-Trained Model Load کریں
+
+```python
+# load_openvla.py
+from openvla import OpenVLA
+import torch
+
+# Load model (downloads ~2GB checkpoint)
+model = OpenVLA.from_pretrained('openvla/openvla-7b')
+model.eval()  # Set to evaluation mode
+
+# Move to GPU if available
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+model = model.to(device)
+
+print(f"Model loaded on {device}")
+print(f"Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M")
+```
+
+### Step 3: Inference چلائیں
+
+```python
+# inference.py
+from PIL import Image
+import numpy as np
+
+# Load test image (robot camera view)
+image = Image.open('robot_view.jpg').resize((224, 224))
+
+# Instruction
+instruction = "pick up the red block"
+
+# Predict action
+with torch.no_grad():
+    action = model.predict(image=image, instruction=instruction)
+
+print(f"Predicted action: {action}")
+# Output: Predicted action: [0.52, 0.18, -0.25, 0.10, 0.05, -0.02, 1.0]
+# [shoulder_pan, shoulder_lift, elbow, wrist1, wrist2, wrist3, gripper_open]
+```
+
+### Step 4: Attention Maps کو Visualize کریں
+
+```python
+# Visualize which image regions the model attends to for each instruction token
+import matplotlib.pyplot as plt
+
+attention_map = model.get_attention_map(image, instruction)
+# attention_map: [num_instruction_tokens, 14, 14] (14x14 image patches)
+
+# Plot attention for "red" token
+token_idx = 3  # "red" is 4th token
+plt.imshow(attention_map[token_idx])
+plt.title("Attention for 'red'")
+plt.colorbar()
+plt.show()
+
+# The model should highlight red regions in the image
+```
+
+## VLA Generalization کا جائزہ
+
+VLAs **zero-shot generalization** میں بہترین ہیں—ایسے tasks انجام دینا جن پر انہیں واضح طور پر train نہیں کیا گیا۔ آئیے اس کا test کریں۔
+
+### Test 1: نئے Objects
+
+```python
+# Training: Model saw "pick up the mug"
+# Test: "pick up the cup"
+# Expected: Succeeds (cup ≈ mug in appearance and affordance)
+
+action = model.predict(image=cup_image, instruction="pick up the cup")
+# Verify: Action should grasp the cup
+```
+
+### Test 2: Synonym Robustness
+
+```python
+# Training: "place the object in the box"
+# Test: "put the item inside the container"
+# Expected: Succeeds (language encoder understands synonyms)
+
+action = model.predict(image, "put the item inside the container")
+```
+
+### Test 3: نئے Compositions
+
+```python
+# Training: Seen "pick up red objects" and "pick up blocks" separately
+# Test: "pick up the green sphere"
+# Expected: Generalizes (composes "green" + "sphere")
+
+action = model.predict(image, "pick up the green sphere")
+```
+
+### Test 4: Negation اور Constraints
+
+```python
+# Test: "pick up the block but not the red one"
+# Challenge: Requires understanding negation
+# Expected: RT-2 handles this (leverages LLM reasoning)
+
+action = model.predict(image, "pick up the block but not the red one")
+```
+
+## عملی مشق: Isaac Sim میں VLA-Controlled Robot
+
+**مقصد**: NVIDIA Isaac Sim میں simulated robot arm کو control کرنے کے لیے OpenVLA کو deploy کریں۔
+
+### Step 1: Isaac Sim Environment Set Up کریں
+
+```python
+# isaac_vla_env.py
+from isaacgym import gymapi
+import torch
+
+# Initialize Isaac Sim
+gym = gymapi.acquire_gym()
+sim = gym.create_sim(0, 0, gymapi.SIM_PHYSX, gymapi.SimParams())
+
+# Load Franka Panda robot arm
+asset_root = "assets"
+asset_file = "franka_panda.urdf"
+franka_asset = gym.load_asset(sim, asset_root, asset_file)
+
+# Create environment
+env = gym.create_env(sim, gymapi.Vec3(-1, -1, 0), gymapi.Vec3(1, 1, 2), 1)
+franka_handle = gym.create_actor(env, franka_asset, gymapi.Transform(), "franka", 0, 0)
+
+# Add camera
+camera_props = gymapi.CameraProperties()
+camera_handle = gym.create_camera_sensor(env, camera_props)
+gym.set_camera_location(camera_handle, env, gymapi.Vec3(1, 0, 1), gymapi.Vec3(0, 0, 0.5))
+
+print("Isaac Sim environment ready")
+```
+
+### Step 2: Camera Image Capture کریں
+
+```python
+# Render and capture RGB image
+gym.step_graphics(sim)
+gym.render_all_camera_sensors(sim)
+
+# Get camera image
+camera_image = gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
+image_array = np.reshape(camera_image, (224, 224, 4))[:, :, :3]  # Remove alpha channel
+
+# Convert to PIL Image
+from PIL import Image
+pil_image = Image.fromarray(image_array.astype(np.uint8))
+```
+
+### Step 3: VLA Inference Loop
+
+```python
+# Load VLA model
+from openvla import OpenVLA
+vla_model = OpenVLA.from_pretrained('openvla/openvla-7b').cuda()
+
+# Control loop
+for step in range(1000):
+    # 1. Get instruction from user (or predefined)
+    instruction = "pick up the red block"
+
+    # 2. Capture current camera view
+    gym.step_graphics(sim)
+    gym.render_all_camera_sensors(sim)
+    camera_image = gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
+    image = Image.fromarray(np.reshape(camera_image, (224, 224, 4))[:, :, :3])
+
+    # 3. Predict action with VLA
+    with torch.no_grad():
+        action = vla_model.predict(image=image, instruction=instruction)
+
+    # 4. Apply action to robot
+    action_tensor = torch.tensor(action[:7], dtype=torch.float32)  # 7-DoF joint positions
+    gym.set_actor_dof_position_targets(env, franka_handle, action_tensor.cpu().numpy())
+
+    # 5. Step simulation
+    gym.simulate(sim)
+    gym.fetch_results(sim, True)
+
+    if step % 100 == 0:
+        print(f"Step {step}: Executing '{instruction}'")
+```
+
+### Step 4: Performance کا جائزہ لیں
+
+```python
+# Test different instructions
+test_instructions = [
+    "pick up the red block",
+    "place the block in the box",
+    "move the green sphere to the left",
+    "grasp the mug by the handle"
+]
+
+success_count = 0
+for instruction in test_instructions:
+    # Run VLA
+    success = run_vla_episode(instruction, max_steps=500)
+    if success:
+        success_count += 1
+
+print(f"Success rate: {success_count}/{len(test_instructions)} ({success_count/len(test_instructions)*100:.1f}%)")
+```
+
+## Failure Modes کو سمجھنا
+
+VLAs کامل نہیں ہیں۔ عام ناکامی کے معاملات:
+
+### 1. مبہم ہدایات
+```
+Instruction: "Pick it up"
+Problem: What is "it"? No object specified
+Solution: Require explicit object references
+```
+
+### 2. جسمانی طور پر ناممکن Tasks
+```
+Instruction: "Lift the table"
+Problem: Object too heavy for robot's actuators
+Solution: Add affordance reasoning (predict feasibility before attempting)
+```
+
+### 3. Distribution Shift
+```
+Training: Brightly lit lab with white table
+Testing: Dimly lit home with wooden table
+Problem: Visual features differ (shadows, textures)
+Solution: Domain randomization during training
+```
+
+### 4. Long-Horizon Tasks
+```
+Instruction: "Clean the entire kitchen"
+Problem: Requires 100+ sub-actions (open drawer, grab cloth, wipe counter, ...)
+Solution: Hierarchical planning (break into sub-goals)
+```
+
+## اگلے قدم
+
+اب آپ نے VLA کی بنیادی باتیں مکمل کر لیں:
+- vision-language-action architecture کو سمجھنا
+- pre-trained models چلانا (OpenVLA)
+- simulation میں VLAs کو deploy کرنا (Isaac Sim)
+- generalization اور failure modes کا جائزہ لینا
+
+**Chapter 2: Building and Deploying Your Own VLA** میں، آپ training data اکٹھا کریں گے، custom tasks پر VLA کو fine-tune کریں گے، حقیقی robot control کے لیے ROS 2 کے ساتھ integrate کریں گے، اور پیچیدہ multi-step procedures کے لیے chain-of-thought prompting جیسی techniques لاگو کریں گے۔
+
+**چیلنج مشق**:
+1. Isaac Sim environment کو modify کریں **متعدد objects** شامل کرنے کے لیے (blocks، spheres، cylinders)
+2. VLA generalization test کریں: "pick up all the red objects"
+3. **action accuracy** ناپیں: کیا predicted gripper pose object کے location سے مماثل ہے؟
+4. **vision pre-training** کے ساتھ اور بغیر performance کا موازنہ کریں (random init vs. CLIP init)
+5. **safety check** implement کریں: اگر VLA ایسی action predict کرے جو collision کا سبب بنے، رکیں اور انسانی مداخلت طلب کریں

@@ -1,0 +1,10 @@
+{
+  "theme.common.skipToMainContent": {
+    "message": "مرکزی مواد پر جائیں",
+    "description": "The skip to content label used for accessibility"
+  },
+  "theme.tags.tagsPageTitle": {
+    "message": "ٹیگز",
+    "description": "The title of the tag list page"
+  }
+}

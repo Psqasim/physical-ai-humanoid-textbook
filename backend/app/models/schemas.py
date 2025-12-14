@@ -59,6 +59,11 @@ class ChatRequest(BaseModel):
         max_length=255,
         description="User identifier for session persistence (optional, nullable for anonymous users)",
     )
+    preferredLanguage: Literal["en", "ur", "ja"] | None = Field(
+        None,
+        description="User's preferred UI language for fallback when language detection confidence is low",
+        examples=["en", "ur", "ja"],
+    )
 
     @field_validator("selectedText", "docPath")
     @classmethod
@@ -159,6 +164,18 @@ class ChatResponse(BaseModel):
     mode: Literal["whole-book", "selection"] = Field(
         ...,
         description="Chat mode that was used for this response",
+    )
+    detectedInputLanguage: Literal["en", "ur", "ja", "unknown"] | None = Field(
+        None,
+        description="Language detected from user's input question",
+    )
+    responseLanguage: Literal["en", "ur", "ja"] | None = Field(
+        None,
+        description="Language used for the AI response",
+    )
+    fallbackApplied: bool | None = Field(
+        None,
+        description="Whether language fallback was applied due to low confidence",
     )
 
     model_config = {

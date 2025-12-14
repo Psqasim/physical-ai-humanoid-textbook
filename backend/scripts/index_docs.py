@@ -18,6 +18,12 @@ Usage:
     # Index entire corpus
     uv run python -m scripts.index_docs
 
+    # Index with language tags (for multilingual support)
+    uv run python -m scripts.index_docs --add-language-tags --language en
+
+    # Re-index existing English documents with language tags
+    uv run python -m scripts.index_docs --add-language-tags
+
     # Custom docs directory
     uv run python -m scripts.index_docs --docs-dir /path/to/docs
 """
@@ -84,6 +90,18 @@ Examples:
         type=int,
         default=100,
         help="Batch size for embedding API calls (default: 100)",
+    )
+    parser.add_argument(
+        "--add-language-tags",
+        action="store_true",
+        help="Add language metadata tags to indexed documents (default language: en)",
+    )
+    parser.add_argument(
+        "--language",
+        type=str,
+        default="en",
+        choices=["en", "ur", "ja"],
+        help="Language code for documents being indexed (default: en)",
     )
     return parser.parse_args()
 
@@ -360,7 +378,7 @@ async def generate_embeddings_batch(
 
 
 async def index_document(
-    file_path: Path, docs_dir: Path, dry_run: bool = False
+    file_path: Path, docs_dir: Path, dry_run: bool = False, language: str = "en", add_language_tags: bool = False
 ) -> List[dict]:
     """
     Index a single document: parse, chunk, and prepare for embedding.
@@ -369,6 +387,8 @@ async def index_document(
         file_path: Path to document file
         docs_dir: Root docs directory
         dry_run: If True, skip embedding generation
+        language: Language code for the document (default: "en")
+        add_language_tags: Whether to add language metadata to chunks
 
     Returns:
         List of chunk dictionaries with metadata
@@ -418,6 +438,16 @@ async def index_document(
             "chunk_index": idx,
             "text": text,
         }
+
+        # Add language metadata if requested
+        if add_language_tags:
+            chunk_obj.update({
+                "language": language,
+                "original_language": language,
+                "translation_source": "original",
+                "content_type": "docs",
+            })
+
         chunk_objects.append(chunk_obj)
 
     return chunk_objects
@@ -427,26 +457,68 @@ async def upsert_chunks_to_qdrant(chunks: List[dict]) -> None:
     """
     Upsert chunks to Qdrant Cloud.
 
+    Supports both legacy chunks (without language metadata) and
+    multilingual chunks (with language metadata).
+
     Args:
         chunks: List of chunk dictionaries with embeddings
     """
-    from app.services.qdrant import upsert_embeddings, EmbeddingChunk
+    # Check if chunks have language metadata
+    has_language_metadata = chunks and "language" in chunks[0]
 
-    # Convert to EmbeddingChunk objects
-    embedding_chunks = [
-        EmbeddingChunk(
-            id=chunk["id"],
-            vector=chunk["vector"],
-            doc_path=chunk["doc_path"],
-            module_id=chunk["module_id"],
-            heading=chunk["heading"],
-            chunk_index=chunk["chunk_index"],
-            text=chunk["text"],
+    if has_language_metadata:
+        # Use multilingual RAG service for chunks with language metadata
+        from app.services.rag_multilingual import MultilingualEmbeddingChunk
+        from app.services.qdrant import get_qdrant_client
+        from qdrant_client.models import PointStruct
+        from uuid import uuid4
+
+        client = get_qdrant_client()
+        from app.core.config import settings
+
+        # Convert to PointStruct objects with language metadata
+        points = [
+            PointStruct(
+                id=uuid4(),
+                vector=chunk["vector"],
+                payload={
+                    "chunk_id": chunk["id"],
+                    "text": chunk["text"],
+                    "doc_path": chunk["doc_path"],
+                    "module_id": chunk["module_id"],
+                    "heading": chunk["heading"],
+                    "chunk_index": chunk["chunk_index"],
+                    "language": chunk["language"],
+                    "original_language": chunk["original_language"],
+                    "translation_source": chunk["translation_source"],
+                    "content_type": chunk["content_type"],
+                },
+            )
+            for chunk in chunks
+        ]
+
+        await client.upsert(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            points=points,
         )
-        for chunk in chunks
-    ]
+    else:
+        # Use legacy service for chunks without language metadata
+        from app.services.qdrant import upsert_embeddings, EmbeddingChunk
 
-    await upsert_embeddings(embedding_chunks)
+        embedding_chunks = [
+            EmbeddingChunk(
+                id=chunk["id"],
+                vector=chunk["vector"],
+                doc_path=chunk["doc_path"],
+                module_id=chunk["module_id"],
+                heading=chunk["heading"],
+                chunk_index=chunk["chunk_index"],
+                text=chunk["text"],
+            )
+            for chunk in chunks
+        ]
+
+        await upsert_embeddings(embedding_chunks)
 
 
 async def main() -> None:
@@ -506,14 +578,23 @@ async def main() -> None:
         logger.info(f"[{i}/{len(files)}] Processing: {file_path.name}")
 
         try:
-            chunks = await index_document(file_path, docs_dir, dry_run=args.dry_run)
+            chunks = await index_document(
+                file_path,
+                docs_dir,
+                dry_run=args.dry_run,
+                language=args.language,
+                add_language_tags=args.add_language_tags
+            )
             total_chunks += len(chunks)
             all_chunks.extend(chunks)
 
             if args.dry_run:
                 logger.info(f"  → Generated {len(chunks)} chunks")
             else:
-                logger.info(f"  → Generated {len(chunks)} chunks with embeddings")
+                if args.add_language_tags:
+                    logger.info(f"  → Generated {len(chunks)} chunks with embeddings and language tags (lang: {args.language})")
+                else:
+                    logger.info(f"  → Generated {len(chunks)} chunks with embeddings")
 
         except Exception as e:
             logger.error(f"  ✗ Failed to process {file_path.name}: {e}")

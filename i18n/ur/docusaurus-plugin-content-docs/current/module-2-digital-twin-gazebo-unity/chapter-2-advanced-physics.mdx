@@ -1,0 +1,533 @@
+---
+sidebar_position: 3
+title: Chapter 2 - اعلیٰ درجے کی طبیعیات اور سینسرز
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 2: اعلیٰ درجے کی طبیعیات اور سینسرز
+
+<ChapterActionsBar chapterTitle="Advanced Physics and Sensors" />
+
+## تعارف
+
+Chapter 1 میں، آپ نے camera اور IMU کے ساتھ ایک بنیادی mobile robot بنایا۔ اگرچہ فعال تھا، اس سمیولیشن نے کئی آسان بنانے والی مفروضات بنائیں: رگڑ کے بغیر سطحیں، کامل motors، اور مثالی sensors۔ حقیقی دنیا کے robots گندے، غیر متوقع ماحول میں کام کرتے ہیں—فرش میں رگڑ مختلف ہوتی ہے، motors backlash اور saturation ظاہر کرتے ہیں، اور LiDAR جیسے sensors میں فاصلے پر منحصر noise اور occlusion ہوتا ہے۔
+
+یہ باب بنیادی سمیولیشن اور **production-grade Digital Twins** کے درمیان خلا کو پُر کرتا ہے۔ آپ سیکھیں گے کہ حقیقت پسند contact dynamics (رگڑ، اچھلنا، damping) کو کیسے model بنائیں، navigation کے لیے اہم advanced sensors (LiDAR، GPS، depth cameras) کیسے شامل کریں، اور real-time میں پیچیدہ منظرنامے چلانے کے لیے simulation performance کو کیسے optimize کریں۔ اختتام تک، آپ high-fidelity simulations بنانے کے قابل ہوں گے جو درستگی سے پیش گوئی کرتی ہیں کہ آپ کا humanoid robot حقیقی دنیا میں کیسے برتاؤ کرے گا۔
+
+## Contact Dynamics: رگڑ اور تصادم کی ماڈلنگ
+
+جب humanoid robot کا پاؤں زمین کو چھوتا ہے، تو ایک ساتھ کئی جسمانی مظاہر رونما ہوتے ہیں: normal forces دخول کی مزاحمت کرتی ہیں، رگڑ پھسلنے سے روکتی ہے، اور مواد کی compliance معمولی خرابی کا سبب بنتی ہے۔ Gazebo کے physics engines (ODE، Bullet، DART) ان تعاملات کو simulate کرتے ہیں، لیکن **درست نتائج کے لیے parameters کی tuning کی ضرورت ہے**۔
+
+### رگڑ کے Coefficients
+
+دو سطحوں کے درمیان رگڑ کو **Coulomb friction** استعمال کرتے ہوئے model بنایا جاتا ہے، جو دو coefficients سے خصوصیت رکھتا ہے:
+
+- **μ₁ (mu1)**: Static friction coefficient (ابتدائی حرکت کی مزاحمت)
+- **μ₂ (mu2)**: Dynamic friction coefficient (پھسلنے کے دوران مزاحمت)
+
+Gazebo میں، آپ اپنے URDF/SDF میں فی سطح ان کی تعریف کرتے ہیں:
+
+```xml
+<gazebo reference="base_link">
+  <mu1>0.8</mu1>  <!-- Rubber on concrete -->
+  <mu2>0.6</mu2>
+  <kp>1000000.0</kp>  <!-- Contact stiffness -->
+  <kd>100.0</kd>      <!-- Contact damping -->
+</gazebo>
+```
+
+**عام رگڑ کی قیمتیں**:
+- برف پر برف: μ₁ ≈ 0.02، μ₂ ≈ 0.01 (بہت پھسلن)
+- خشک concrete پر rubber: μ₁ ≈ 1.0، μ₂ ≈ 0.8 (اعلیٰ traction)
+- دھات پر دھات: μ₁ ≈ 0.6، μ₂ ≈ 0.4
+
+**humanoids کے لیے یہ کیوں اہم ہے**: Walking controllers زمین کی رگڑ کی ایک خاص سطح کا اندازہ لگاتے ہیں۔ اگر آپ کی سمیولیشن μ=1.0 استعمال کرتی ہے لیکن حقیقی فرش میں μ=0.5 (گیلی ٹائل) ہے، تو آپ کا robot پھسل کر گر جائے گا۔ ہمیشہ بدترین صورتحال کی رگڑ کے منظرنامے simulate کریں۔
+
+### Contact Stiffness اور Damping
+
+`<kp>` (stiffness) اور `<kd>` (damping) parameters اس بات کو control کرتے ہیں کہ سطحیں contact کا کیسے جواب دیتی ہیں:
+
+- **اعلیٰ kp**: سخت contact (concrete فرش) – اشیاء کم اچھلتی ہیں، دخول کم سے کم ہے
+- **کم kp**: نرم contact (foam mat) – اشیاء اندر دھنس جاتی ہیں، کم اچھلنا
+- **اعلیٰ kd**: بھاری طور پر damped (کیچڑ) – توانائی تیزی سے منتشر ہوتی ہے، اچھلنا نہیں
+- **کم kd**: ہلکے طور پر damped (rubber ball) – اچھلنے والے تصادم
+
+```xml
+<!-- Rigid floor (warehouse concrete) -->
+<kp>10000000.0</kp>
+<kd>1000.0</kd>
+
+<!-- Soft terrain (grass, carpet) -->
+<kp>100000.0</kp>
+<kd>10.0</kd>
+```
+
+**رگڑ کی جانچ**: مختلف زاویوں پر Gazebo میں ramp بنائیں اور مختلف friction coefficients کے لیے slip angle کی پیمائش کریں۔ یہ walking controllers کو deploy کرنے سے پہلے آپ کے physics model کی تصدیق کرتا ہے۔
+
+### حقیقت پسند Ground Contact کی ماڈلنگ
+
+humanoid کے پیروں کے لیے، آپ اکثر **اعلیٰ رگڑ** (پھسلنے سے روکنے کے لیے) لیکن **compliant surfaces** (اثر کو جذب کرنے کے لیے) چاہتے ہیں۔ یہاں ایک مکمل foot link کی تعریف ہے:
+
+```xml
+<link name="foot_link">
+  <collision>
+    <geometry>
+      <box size="0.2 0.1 0.05"/>
+    </geometry>
+  </collision>
+  <inertial>
+    <mass value="0.5"/>
+    <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+  </inertial>
+</link>
+
+<gazebo reference="foot_link">
+  <mu1>1.2</mu1>      <!-- High friction for stability -->
+  <mu2>1.0</mu2>
+  <kp>5000000.0</kp>  <!-- Moderately stiff -->
+  <kd>500.0</kd>      <!-- Some damping to absorb shock -->
+  <material>Gazebo/DarkGrey</material>
+</gazebo>
+```
+
+## اعلیٰ درجے کی Sensor سمیولیشن
+
+### LiDAR: 2D اور 3D اسکیننگ
+
+**LiDAR (Light Detection and Ranging)** sensors لیزر pulses خارج کرتے ہیں اور فاصلوں کا حساب لگانے کے لیے time-of-flight کی پیمائش کرتے ہیں۔ یہ SLAM (Simultaneous Localization and Mapping) اور رکاوٹ سے بچنے کے لیے اہم ہیں۔
+
+#### 2D Planar LiDAR (مثلاً SICK LMS، Hokuyo)
+
+ہموار ماحول میں 2D navigation کے لیے استعمال ہوتا ہے۔
+
+```xml
+<link name="lidar_link">
+  <visual>
+    <geometry>
+      <cylinder radius="0.05" length="0.07"/>
+    </geometry>
+    <material name="black">
+      <color rgba="0 0 0 1"/>
+    </material>
+  </visual>
+</link>
+
+<joint name="lidar_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="lidar_link"/>
+  <origin xyz="0.2 0 0.15" rpy="0 0 0"/>
+</joint>
+
+<gazebo reference="lidar_link">
+  <sensor name="lidar" type="ray">
+    <always_on>true</always_on>
+    <update_rate>10</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>720</samples>          <!-- 720 beams -->
+          <resolution>1</resolution>
+          <min_angle>-3.14159</min_angle> <!-- -180° -->
+          <max_angle>3.14159</max_angle>  <!-- +180° -->
+        </horizontal>
+      </scan>
+      <range>
+        <min>0.1</min>
+        <max>30.0</max>
+        <resolution>0.01</resolution>
+      </range>
+      <noise>
+        <type>gaussian</type>
+        <mean>0.0</mean>
+        <stddev>0.01</stddev> <!-- 1cm noise -->
+      </noise>
+    </ray>
+    <plugin name="lidar_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=scan</remapping>
+      </ros>
+      <output_type>sensor_msgs/LaserScan</output_type>
+      <frame_name>lidar_link</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**اہم parameters**:
+- `<samples>`: فی scan لیزر beams کی تعداد (زیادہ = زیادہ تفصیل، سست)
+- `<min_angle>`/`<max_angle>`: Field of view (360° = مکمل دائرہ)
+- `<range>`: Detection فاصلہ (0.1m سے 30m indoor LiDAR کے لیے عام)
+- `<noise>`: Gaussian noise حقیقی sensor کی نامکملیت کو simulate کرتی ہے
+
+**LiDAR data کو visualize کریں**:
+```bash
+# Terminal 1: Launch Gazebo with robot
+ros2 launch my_robot_description gazebo.launch.py
+
+# Terminal 2: View scan data in RViz
+rviz2
+# In RViz:
+# - Add LaserScan display
+# - Set topic to /my_robot/scan
+# - Set Fixed Frame to "base_link" or "lidar_link"
+```
+
+#### 3D LiDAR (Velodyne، Ouster)
+
+3D mapping، terrain تجزیہ، اور فضائی drones کے لیے استعمال ہوتا ہے۔
+
+```xml
+<gazebo reference="lidar_3d_link">
+  <sensor name="velodyne" type="ray">
+    <always_on>true</always_on>
+    <update_rate>10</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>360</samples>
+          <resolution>1</resolution>
+          <min_angle>-3.14159</min_angle>
+          <max_angle>3.14159</max_angle>
+        </horizontal>
+        <vertical>
+          <samples>16</samples>           <!-- 16-beam Velodyne -->
+          <resolution>1</resolution>
+          <min_angle>-0.2618</min_angle>  <!-- -15° down -->
+          <max_angle>0.2618</max_angle>   <!-- +15° up -->
+        </vertical>
+      </scan>
+      <range>
+        <min>0.5</min>
+        <max>100.0</max>
+        <resolution>0.02</resolution>
+      </range>
+    </ray>
+    <plugin name="velodyne_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=velodyne_points</remapping>
+      </ros>
+      <output_type>sensor_msgs/PointCloud2</output_type>
+      <frame_name>lidar_3d_link</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**استعمال کیس**: ایک humanoid جو کھردری زمین پر جا رہا ہو 3D LiDAR استعمال کرتا ہے تاکہ سیڑھیاں، curbs، اور ناہموار زمین کا پتہ لگائے جو 2D LiDAR چھوڑ دیتا ہے۔
+
+### Depth Cameras (RGB-D Sensors)
+
+Intel RealSense یا Microsoft Kinect جیسے depth cameras RGB تصاویر کو فی pixel depth measurements کے ساتھ ملاتے ہیں۔
+
+```xml
+<gazebo reference="depth_camera_link">
+  <sensor name="depth_camera" type="depth">
+    <update_rate>20</update_rate>
+    <camera>
+      <horizontal_fov>1.047</horizontal_fov>
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.3</near>
+        <far>10.0</far>
+      </clip>
+    </camera>
+    <plugin name="depth_camera_controller" filename="libgazebo_ros_camera.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>image_raw:=depth_camera/image</remapping>
+        <remapping>depth/image_raw:=depth_camera/depth</remapping>
+        <remapping>points:=depth_camera/points</remapping>
+      </ros>
+      <frame_name>depth_camera_link</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**آؤٹ پٹ topics**:
+- `/depth_camera/image`: RGB تصویر
+- `/depth_camera/depth`: Depth تصویر (grayscale، شدت = فاصلہ)
+- `/depth_camera/points`: PointCloud2 (3D point cloud)
+
+**ایپلیکیشن**: Object recognition pipelines رنگ پر مبنی detection کے لیے RGB استعمال کرتی ہیں اور 3D pose estimation کے لیے depth۔
+
+### GPS (Global Positioning System)
+
+باہری robots (ڈیلیوری robots، زرعی bots) کے لیے، GPS عالمی localization فراہم کرتا ہے۔
+
+```xml
+<gazebo reference="base_link">
+  <sensor name="gps_sensor" type="gps">
+    <always_on>true</always_on>
+    <update_rate>1.0</update_rate>
+    <gps>
+      <position_sensing>
+        <horizontal>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>2.0</stddev> <!-- 2m horizontal error (consumer GPS) -->
+          </noise>
+        </horizontal>
+        <vertical>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>4.0</stddev> <!-- 4m vertical error -->
+          </noise>
+        </vertical>
+      </position_sensing>
+      <velocity_sensing>
+        <horizontal>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.1</stddev>
+          </noise>
+        </horizontal>
+        <vertical>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.1</stddev>
+          </noise>
+        </vertical>
+      </velocity_sensing>
+    </gps>
+    <plugin name="gps_controller" filename="libgazebo_ros_gps_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=gps/fix</remapping>
+      </ros>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**noise کیوں اہم ہے**: حقیقی GPS میں satellite کی مرئیت کے لحاظ سے 2-10m کی خرابی ہوتی ہے۔ آپ کے navigation stack کو sensor fusion (GPS + IMU + wheel odometry) استعمال کرتے ہوئے اس غیر یقینی صورتحال کو سنبھالنا ضروری ہے۔
+
+### Force-Torque Sensors
+
+Humanoid robots پیروں میں force-torque sensors استعمال کرتے ہیں (زمین کی رد عمل قوتوں کی پیمائش) اور کلائیوں میں (پکڑنے کی قوتوں کی پیمائش)۔
+
+```xml
+<gazebo>
+  <plugin name="ft_sensor" filename="libgazebo_ros_ft_sensor.so">
+    <ros>
+      <namespace>/my_robot</namespace>
+      <remapping>~/out:=ft_sensor/data</remapping>
+    </ros>
+    <update_rate>100</update_rate>
+    <joint_name>ankle_joint</joint_name>
+    <frame_name>foot_link</frame_name>
+    <measure_direction>child_to_parent</measure_direction>
+  </plugin>
+</gazebo>
+```
+
+**ایپلیکیشن**: Walking controllers پیر کے force sensors استعمال کرتے ہیں تاکہ زمین کی رابطہ کی ٹائمنگ کا پتہ لگائیں، جو dynamic balance کے لیے ضروری ہے۔
+
+## Performance Optimization
+
+اگر آپ کی دنیا میں پیچیدہ geometries یا بہت سے sensors ہیں تو سمیولیشن سست ہو سکتی ہے۔ optimize کرنے کا طریقہ یہ ہے:
+
+### 1. Collision Meshes کو آسان بنائیں
+
+تفصیلی visual meshes کی بجائے collision detection کے لیے primitive shapes (boxes، cylinders، spheres) استعمال کریں۔
+
+```xml
+<link name="body">
+  <!-- Detailed visual mesh -->
+  <visual>
+    <geometry>
+      <mesh filename="model://my_robot/meshes/body.dae"/>
+    </geometry>
+  </visual>
+
+  <!-- Simple collision shape (approximation) -->
+  <collision>
+    <geometry>
+      <box size="0.5 0.3 0.7"/>
+    </geometry>
+  </collision>
+</link>
+```
+
+**اثر**: Collision checks پیچیدہ meshes کے مقابلے میں primitives کے ساتھ 10-100 گنا تیز چلتے ہیں۔
+
+### 2. Physics Update Rates کو ایڈجسٹ کریں
+
+Gazebo کی default physics update 1000 Hz (1ms timestep) ہے۔ faster-than-real-time simulation کے لیے، اسے کم کریں:
+
+```xml
+<world name="default">
+  <physics type="ode">
+    <max_step_size>0.01</max_step_size>      <!-- 10ms timestep = 100 Hz -->
+    <real_time_update_rate>100</real_time_update_rate>
+  </physics>
+</world>
+```
+
+**Trade-off**: کم update rates درستگی کو کم کرتی ہیں۔ کم سے کم قابل قبول rate تلاش کرنے کے لیے مختلف rates پر اپنے controllers کو test کریں۔
+
+### 3. Sensor Update Rates کو کم کریں
+
+60 Hz پر cameras زیادہ تر ایپلیکیشنز کے لیے زیادہ ہیں۔ 10-30 Hz استعمال کریں:
+
+```xml
+<update_rate>10</update_rate> <!-- Instead of 60 -->
+```
+
+### 4. Headless Simulation
+
+RL policies کی تربیت یا CI/CD testing کے لیے، GUI کے بغیر `gzserver` چلائیں:
+
+```bash
+gzserver --verbose my_world.world &
+ros2 launch my_robot_controller train_policy.launch.py
+```
+
+**تیزی**: rendering کے بغیر 2-5 گنا تیز۔
+
+## عملی مشق: Mapping Robot بنانا
+
+**مقصد**: 2D LiDAR کے ساتھ robot بنائیں، اسے بھولبلیا جیسے ماحول میں چلائیں، اور ROS 2 کے SLAM Toolbox استعمال کرتے ہوئے 2D occupancy grid map بنائیں۔
+
+### قدم 1: اپنے Robot میں LiDAR شامل کریں
+
+Chapter 1 کے URDF استعمال کرتے ہوئے، اس باب کے شروع سے 2D LiDAR sensor definition شامل کریں۔
+
+### قدم 2: بھولبلیا World بنائیں
+
+`worlds/maze.world` بنائیں:
+
+```xml
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="maze">
+    <include><uri>model://ground_plane</uri></include>
+    <include><uri>model://sun</uri></include>
+
+    <!-- Walls forming a simple maze -->
+    <model name="wall1">
+      <pose>5 0 1 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall2">
+      <pose>0 5 1 0 0 1.5708</pose>
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.2 10 2</size></box></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Add more walls to create complexity -->
+  </world>
+</sdf>
+```
+
+### قدم 3: SLAM Toolbox انسٹال اور Launch کریں
+
+```bash
+# Install SLAM Toolbox
+sudo apt-get install ros-humble-slam-toolbox
+
+# Launch Gazebo with maze
+ros2 launch my_robot_description gazebo.launch.py world:=maze.world
+
+# Launch SLAM Toolbox (in new terminal)
+ros2 launch slam_toolbox online_async_launch.py \
+  use_sim_time:=true \
+  scan_topic:=/my_robot/scan
+
+# Launch RViz to visualize map (in new terminal)
+rviz2
+```
+
+**RViz میں**:
+1. Fixed Frame کو `map` پر سیٹ کریں
+2. `Map` display شامل کریں (topic: `/map`)
+3. `LaserScan` display شامل کریں (topic: `/my_robot/scan`)
+4. `RobotModel` شامل کریں
+
+### قدم 4: چلائیں اور Map بنائیں
+
+بھولبلیا کے ذریعے اپنے robot کو چلانے کے لیے keyboard teleop استعمال کریں:
+
+```bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+  --ros-args --remap cmd_vel:=/cmd_vel
+```
+
+جیسے جیسے آپ چلاتے ہیں، RViz میں map کو بھرتے ہوئے دیکھیں۔ SLAM Toolbox 2D occupancy grid بنانے کے لیے laser scans کو odometry کے ساتھ fuse کرتا ہے۔
+
+### قدم 5: Map محفوظ کریں
+
+ایک بار exploration مکمل ہو جائے:
+
+```bash
+ros2 run nav2_map_server map_saver_cli -f my_maze_map
+```
+
+یہ `my_maze_map.pgm` (تصویر) اور `my_maze_map.yaml` (metadata) بناتا ہے۔ آپ بعد میں Nav2 کے ساتھ خودکار navigation کے لیے اس map کو استعمال کر سکتے ہیں۔
+
+## Domain Randomization: Reality Gap کو بند کرنا
+
+اپنی سمیولیشن کو زیادہ مضبوط بنانے کے لیے، تربیت کے دوران **parameters کو randomize** کریں:
+
+- **رگڑ**: μ ∈ [0.5, 1.2]
+- **Sensor noise**: σ ∈ [0.005, 0.02]
+- **اشیاء کی پوزیشنیں**: رکاوٹوں کی جگہ کو randomize کریں
+- **روشنی**: vision tasks کے لیے چمک کو مختلف کریں
+
+**نفاذ**: ایک Python script لکھیں جو spawn سے پہلے SDF parameters کو modify کرے:
+
+```python
+import random
+from xml.etree import ElementTree as ET
+
+def randomize_friction(sdf_file):
+    tree = ET.parse(sdf_file)
+    root = tree.getroot()
+
+    for surface in root.iter('surface'):
+        mu1 = surface.find('.//mu1')
+        if mu1 is not None:
+            # Randomize between 0.5 and 1.2
+            mu1.text = str(random.uniform(0.5, 1.2))
+
+    tree.write(sdf_file)
+```
+
+ہر تربیتی episode سے پہلے اسے چلائیں تاکہ اپنی RL policy کو متنوع حالات میں بے نقاب کریں۔
+
+## اگلے قدمات
+
+اب آپ نے advanced physics simulation اور sensor integration میں مہارت حاصل کر لی ہے:
+- حقیقت پسند contact کے لیے رگڑ، stiffness، اور damping کی tuning
+- LiDAR، depth cameras، GPS، اور force-torque sensors کی سمیولیشن
+- Simulation performance کی optimization
+- SLAM کے ساتھ maps بنانا
+
+اگلے ماڈیول (**Module 3: NVIDIA Isaac Sim**) میں، آپ بڑے پیمانے پر robot fleets کے لیے GPU-accelerated simulation اور perception training کے لیے photorealistic rendering کی تلاش کریں گے۔ آپ یہ بھی سیکھیں گے کہ Isaac Gym جیسے reinforcement learning frameworks کے ساتھ physics-based simulation کو کیسے integrate کریں۔
+
+**چیلنج مشق**: اپنے robot میں 3D LiDAR شامل کریں اور 3D mapping (Octomap یا RTAB-Map) استعمال کرنے کے لیے SLAM launch file کو modify کریں۔ اسی ماحول میں 2D بمقابلہ 3D maps کے معیار کا موازنہ کریں۔

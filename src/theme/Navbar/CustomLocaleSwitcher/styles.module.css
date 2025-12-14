@@ -1,0 +1,58 @@
+.localeSwitcher {
+  display: flex;
+  align-items: center;
+  margin: 0 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.localeDropdown {
+  appearance: none;
+  background-color: var(--ifm-navbar-background-color);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  color: var(--ifm-navbar-link-color);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: var(--ifm-font-weight-normal);
+  padding: 0.375rem 2rem 0.375rem 0.75rem;
+  min-width: 120px;
+  transition: all 0.2s ease;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="%23666" d="M6 9L1 4h10z"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 0.65rem;
+}
+
+.localeDropdown:hover {
+  background-color: var(--ifm-color-emphasis-100);
+  border-color: var(--ifm-color-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.localeDropdown:focus {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+  border-color: var(--ifm-color-primary);
+}
+
+.localeDropdown:active {
+  transform: translateY(0);
+}
+
+/* Dark mode support */
+[data-theme='dark'] .localeDropdown {
+  border-color: var(--ifm-color-emphasis-400);
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="%23ccc" d="M6 9L1 4h10z"/></svg>');
+}
+
+[data-theme='dark'] .localeDropdown:hover {
+  background-color: var(--ifm-color-emphasis-200);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* RTL support */
+html[dir='rtl'] .localeDropdown {
+  padding: 0.375rem 0.75rem 0.375rem 2rem;
+  background-position: left 0.5rem center;
+}

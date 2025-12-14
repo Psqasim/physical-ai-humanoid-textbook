@@ -52,3 +52,99 @@
 @media (min-width: 1024px) {
   /* Desktop styles will be added here as components are developed */
 }
+
+/* ==========================================================================
+   RTL (Right-to-Left) Language Support
+   ========================================================================== */
+
+/* Global RTL settings */
+html[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Ensure body respects RTL */
+html[dir="rtl"] body {
+  direction: rtl;
+}
+
+/* Main container RTL layout */
+html[dir="rtl"] .main-wrapper {
+  direction: rtl;
+}
+
+/* Docusaurus page structure - sidebar on right for RTL */
+html[dir="rtl"] .docPage {
+  direction: rtl;
+}
+
+html[dir="rtl"] .docMainContainer {
+  direction: rtl;
+}
+
+/* Table of Contents - position on left for RTL (opposite of LTR) */
+html[dir="rtl"] .theme-doc-toc-desktop {
+  order: 0;
+}
+
+/* Content wrapper */
+html[dir="rtl"] .theme-doc-markdown {
+  direction: rtl;
+}
+
+/* Pagination - swap prev/next positions */
+html[dir="rtl"] .pagination-nav__link--prev {
+  float: right;
+}
+
+html[dir="rtl"] .pagination-nav__link--next {
+  float: left;
+}
+
+/* Breadcrumbs separator flip */
+html[dir="rtl"] .breadcrumbs__item:not(:last-child)::after {
+  content: '\\';
+  transform: scaleX(-1);
+}
+
+/* Dropdown menu alignment */
+html[dir="rtl"] .dropdown__menu {
+  right: auto;
+  left: 0;
+}
+
+/* Mobile menu - slide from right */
+html[dir="rtl"] .navbar-sidebar {
+  transform: translate3d(100%, 0, 0);
+}
+
+html[dir="rtl"] .navbar-sidebar--show {
+  transform: translate3d(0, 0, 0);
+}
+
+/* Fix for inline code direction */
+html[dir="rtl"] :not(pre) > code {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
+/* Ensure proper spacing for RTL */
+html[dir="rtl"] .margin-left--md {
+  margin-left: 0;
+  margin-right: 1rem;
+}
+
+html[dir="rtl"] .margin-right--md {
+  margin-right: 0;
+  margin-left: 1rem;
+}
+
+html[dir="rtl"] .padding-left--md {
+  padding-left: 0;
+  padding-right: 1rem;
+}
+
+html[dir="rtl"] .padding-right--md {
+  padding-right: 0;
+  padding-left: 1rem;
+}

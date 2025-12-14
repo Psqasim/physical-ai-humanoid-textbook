@@ -1,0 +1,158 @@
+openapi: 3.0.3
+info:
+  title: Language Detection API
+  description: Detect language from text input for multilingual support
+  version: 1.0.0
+  contact:
+    name: Physical AI & Humanoid Robotics Textbook
+    url: https://github.com/Psqasim/physical-ai-humanoid-textbook
+
+servers:
+  - url: https://physical-ai-humanoid-textbook-production.up.railway.app/api
+    description: Production server
+  - url: http://localhost:8000/api
+    description: Local development server
+
+paths:
+  /detect-language:
+    post:
+      summary: Detect language from text
+      description: |
+        Detects the language of the provided text and returns the detected language code,
+        confidence score, and whether fallback logic was applied.
+
+        Supported languages: English (en), Urdu (ur), Japanese (ja)
+
+        Detection uses the `langdetect` library with 50% confidence threshold.
+        If confidence < 50% or language is unsupported, falls back to UI language or English.
+      operationId: detectLanguage
+      tags:
+        - Language
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LanguageDetectionRequest'
+            examples:
+              english:
+                summary: English text
+                value:
+                  text: "What is ROS 2?"
+              urdu:
+                summary: Urdu text
+                value:
+                  text: "ROS 2 کیا ہے؟"
+              japanese:
+                summary: Japanese text
+                value:
+                  text: "ROS 2 とは何ですか？"
+      responses:
+        '200':
+          description: Language detected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LanguageDetectionResult'
+              examples:
+                success:
+                  summary: Successful detection
+                  value:
+                    detectedLanguage: "ur"
+                    confidence: 0.9
+                    fallbackApplied: false
+                fallback:
+                  summary: Fallback applied (low confidence)
+                  value:
+                    detectedLanguage: "en"
+                    confidence: 0.2
+                    fallbackApplied: true
+        '400':
+          description: Bad request (invalid input)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Text is required and must be a non-empty string"
+                code: "INVALID_INPUT"
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Text length exceeds 5000 characters"
+                code: "PAYLOAD_TOO_LARGE"
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Rate limit exceeded: 100 requests per minute"
+                code: "RATE_LIMIT_EXCEEDED"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Language detection service unavailable"
+                code: "INTERNAL_ERROR"
+
+components:
+  schemas:
+    LanguageDetectionRequest:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: Text to detect language from
+          minLength: 1
+          maxLength: 5000
+          example: "مرحبا بك في دليل الروبوتات"
+
+    LanguageDetectionResult:
+      type: object
+      required:
+        - detectedLanguage
+        - confidence
+        - fallbackApplied
+      properties:
+        detectedLanguage:
+          type: string
+          enum: [en, ur, ja, unknown]
+          description: Detected language code (ISO 639-1)
+          example: "ur"
+        confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Detection confidence score (0.0 = no confidence, 1.0 = certain)
+          example: 0.9
+        fallbackApplied:
+          type: boolean
+          description: Whether fallback logic was applied due to low confidence or unsupported language
+          example: false
+
+    Error:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "Invalid input provided"
+        code:
+          type: string
+          description: Machine-readable error code
+          example: "INVALID_INPUT"
