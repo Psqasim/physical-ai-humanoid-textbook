@@ -40,17 +40,111 @@
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
 
-/* Mobile-first responsive styles */
-@media (max-width: 768px) {
-  /* Mobile styles will be added here as components are developed */
+/* ==========================================================================
+   Responsive Navigation Styles (Docusaurus Standard: 996px breakpoint)
+   ========================================================================== */
+
+/* Mobile: < 996px */
+@media (max-width: 996px) {
+  /* Navbar container */
+  .navbar {
+    padding: 0.5rem 1rem;
+  }
+
+  /* Navbar items - ensure proper wrapping on small screens */
+  .navbar__items {
+    gap: 0.5rem;
+  }
+
+  /* Logo - reduce size on mobile */
+  .navbar__logo {
+    max-height: 2rem;
+  }
+
+  .navbar__title {
+    font-size: 1rem;
+  }
+
+  /* Hide navbar items that don't fit - mobile menu will show them */
+  .navbar__items--right > .navbar__item:not(.navbar__toggle) {
+    display: none;
+  }
+
+  /* Mobile toggle button - ensure visible */
+  .navbar__toggle {
+    display: inherit;
+  }
+
+  /* Mobile sidebar menu */
+  .navbar-sidebar {
+    width: 80vw;
+    max-width: 350px;
+  }
+
+  /* Mobile sidebar items */
+  .navbar-sidebar__items {
+    padding: 1rem;
+  }
+
+  .navbar-sidebar__item {
+    padding: 0.5rem 0;
+  }
+
+  /* Chat button on mobile - make it compact */
+  .navbar__item.chat-button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+  }
 }
 
-@media (min-width: 768px) and (max-width: 1024px) {
-  /* Tablet styles will be added here as components are developed */
+/* Desktop: >= 996px */
+@media (min-width: 996px) {
+  /* Navbar container */
+  .navbar {
+    padding: 0.5rem 1.5rem;
+  }
+
+  /* Navbar items - horizontal layout with spacing */
+  .navbar__items {
+    gap: 1rem;
+  }
+
+  /* Logo - full size on desktop */
+  .navbar__logo {
+    max-height: 2.5rem;
+  }
+
+  .navbar__title {
+    font-size: 1.2rem;
+  }
+
+  /* Show all navbar items on desktop */
+  .navbar__items--right > .navbar__item {
+    display: flex;
+  }
+
+  /* Hide mobile toggle button on desktop */
+  .navbar__toggle {
+    display: none;
+  }
+
+  /* Navbar links - proper spacing */
+  .navbar__link {
+    padding: 0.5rem 1rem;
+  }
 }
 
-@media (min-width: 1024px) {
-  /* Desktop styles will be added here as components are developed */
+/* Tablet-specific adjustments: 768px - 996px */
+@media (min-width: 768px) and (max-width: 996px) {
+  /* Tablet gets mobile layout but with slightly more space */
+  .navbar {
+    padding: 0.5rem 1.25rem;
+  }
+
+  .navbar-sidebar {
+    width: 60vw;
+    max-width: 400px;
+  }
 }
 
 /* ==========================================================================
@@ -120,6 +214,43 @@ html[dir="rtl"] .navbar-sidebar {
 
 html[dir="rtl"] .navbar-sidebar--show {
   transform: translate3d(0, 0, 0);
+}
+
+/* RTL Responsive adjustments */
+@media (max-width: 996px) {
+  html[dir="rtl"] .navbar {
+    direction: rtl;
+  }
+
+  html[dir="rtl"] .navbar__items {
+    direction: rtl;
+  }
+
+  html[dir="rtl"] .navbar__toggle {
+    margin-left: 0;
+    margin-right: auto;
+  }
+
+  html[dir="rtl"] .navbar-sidebar {
+    right: 0;
+    left: auto;
+  }
+
+  html[dir="rtl"] .navbar-sidebar__items {
+    text-align: right;
+  }
+}
+
+@media (min-width: 996px) {
+  html[dir="rtl"] .navbar__items--right {
+    margin-right: auto;
+    margin-left: 0;
+  }
+
+  html[dir="rtl"] .navbar__items--left {
+    margin-left: auto;
+    margin-right: 0;
+  }
 }
 
 /* Fix for inline code direction */
