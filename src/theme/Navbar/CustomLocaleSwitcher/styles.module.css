@@ -56,3 +56,81 @@ html[dir='rtl'] .localeDropdown {
   padding: 0.375rem 0.75rem 0.375rem 2rem;
   background-position: left 0.5rem center;
 }
+
+/* ==========================================================================
+   Responsive Styles (Docusaurus Standard: 996px breakpoint)
+   ========================================================================== */
+
+/* Mobile: < 996px */
+@media (max-width: 996px) {
+  .localeSwitcher {
+    margin: 0 0.5rem;
+    width: 100%;
+    max-width: 140px;
+  }
+
+  .localeDropdown {
+    font-size: 0.85rem;
+    padding: 0.3rem 1.75rem 0.3rem 0.5rem;
+    min-width: 100px;
+    max-width: 140px;
+  }
+
+  /* Mobile sidebar - full width locale switcher */
+  .navbar-sidebar .localeSwitcher {
+    max-width: 100%;
+    margin: 1rem 0;
+  }
+
+  .navbar-sidebar .localeDropdown {
+    width: 100%;
+    max-width: 100%;
+    padding: 0.5rem 2rem 0.5rem 1rem;
+    font-size: 1rem;
+  }
+}
+
+/* Desktop: >= 996px */
+@media (min-width: 996px) {
+  .localeSwitcher {
+    margin: 0 0.75rem;
+  }
+
+  .localeDropdown {
+    min-width: 120px;
+  }
+}
+
+/* Tablet-specific: 768px - 996px */
+@media (min-width: 768px) and (max-width: 996px) {
+  .localeDropdown {
+    min-width: 110px;
+  }
+}
+
+/* Small mobile: < 480px */
+@media (max-width: 480px) {
+  .localeSwitcher {
+    margin: 0 0.25rem;
+    max-width: 120px;
+  }
+
+  .localeDropdown {
+    font-size: 0.8rem;
+    min-width: 90px;
+    max-width: 120px;
+    padding: 0.25rem 1.5rem 0.25rem 0.4rem;
+  }
+}
+
+/* Ensure dropdown is accessible on touch devices */
+@media (hover: none) {
+  .localeDropdown:active {
+    transform: none;
+  }
+
+  .localeDropdown:focus {
+    outline: 3px solid var(--ifm-color-primary);
+    outline-offset: 2px;
+  }
+}

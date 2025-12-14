@@ -182,46 +182,64 @@ export default function ChatPanelPlaceholder({
       console.log('Payload:', JSON.stringify(payload, null, 2));
       console.log('==========================');
 
-      // Make API call
-      const response = await fetch(`${backendUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      // Make API call with 60-second timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds
 
-      if (!response.ok) {
-        // Try to parse error message
-        let errorMessage = 'The chatbot is temporarily unavailable. Please try again.';
-        try {
-          const errorData = await response.json();
-          if (errorData.detail) {
-            errorMessage = errorData.detail;
+      try {
+        const response = await fetch(`${backendUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          // Try to parse error message
+          let errorMessage = 'The chatbot is temporarily unavailable. Please try again.';
+          try {
+            const errorData = await response.json();
+            if (errorData.detail) {
+              errorMessage = errorData.detail;
+            }
+          } catch (e) {
+            // Use default error message
           }
-        } catch (e) {
-          // Use default error message
+          throw new Error(errorMessage);
         }
-        throw new Error(errorMessage);
+
+        const data: ChatResponse = await response.json();
+
+        // Add user message
+        const userMessage: Message = {
+          role: 'user',
+          text: question,
+        };
+
+        // Add assistant message
+        const assistantMessage: Message = {
+          role: 'assistant',
+          text: data.answer,
+          citations: data.citations,
+        };
+
+        setMessages(prev => [...prev, userMessage, assistantMessage]);
+        setInput(''); // Clear input
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
+
+        // Check if request was aborted (timeout)
+        if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+          throw new Error('Request timed out. The server took too long to respond. Please try again.');
+        }
+
+        // Re-throw other fetch errors
+        throw fetchErr;
       }
-
-      const data: ChatResponse = await response.json();
-
-      // Add user message
-      const userMessage: Message = {
-        role: 'user',
-        text: question,
-      };
-
-      // Add assistant message
-      const assistantMessage: Message = {
-        role: 'assistant',
-        text: data.answer,
-        citations: data.citations,
-      };
-
-      setMessages(prev => [...prev, userMessage, assistantMessage]);
-      setInput(''); // Clear input
     } catch (err) {
       console.error('Chat API error:', err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
