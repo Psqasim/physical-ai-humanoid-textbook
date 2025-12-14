@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import AskTheTextbookButton from '@site/src/components/chat/AskTheTextbookButton';
 import { enableNewChatUI } from '@site/src/components/chat/featureFlags';
+
+// RTL support for Urdu
+import '@site/src/theme/RTL/urdu.css';
 
 // Chat components - Using new redesigned UI (003-chat-ui-redesign)
 import ChatPanelPlaceholder from '@site/src/components/chat/ChatPanelPlaceholder';
@@ -12,13 +16,28 @@ import TextSelectionTooltip from '@site/src/components/chat/TextSelectionTooltip
 
 const MIN_SELECTION_LENGTH = 10;
 
+/**
+ * Set document direction based on language
+ */
+function setDocumentDirection(language: string) {
+  const direction = language === 'ur' ? 'rtl' : 'ltr';
+  document.documentElement.setAttribute('dir', direction);
+  document.documentElement.setAttribute('lang', language);
+}
+
 export default function Root({ children }: { children: React.ReactNode }): JSX.Element {
+  const { i18n } = useDocusaurusContext();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [selectedText, setSelectedText] = useState('');
   const [preservedSelectedText, setPreservedSelectedText] = useState(''); // Preserve text when chat opens
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
   const [initialChatMode, setInitialChatMode] = useState<'whole-book' | 'selection'>('whole-book');
+
+  // Set document direction based on current locale (for RTL support)
+  useEffect(() => {
+    setDocumentDirection(i18n.currentLocale);
+  }, [i18n.currentLocale]);
 
   useEffect(() => {
     const handleSelection = () => {

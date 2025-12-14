@@ -1,0 +1,100 @@
+.voiceInputContainer {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voiceButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid var(--ifm-color-emphasis-300);
+  border-radius: 50%;
+  background-color: var(--ifm-background-color);
+  color: var(--ifm-color-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.voiceButton:hover {
+  background-color: var(--ifm-color-primary-lightest);
+  border-color: var(--ifm-color-primary);
+  transform: scale(1.05);
+}
+
+.voiceButton:active {
+  transform: scale(0.95);
+}
+
+.voiceButton:focus {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.voiceButton.listening {
+  background-color: var(--ifm-color-danger-lightest);
+  border-color: var(--ifm-color-danger);
+  color: var(--ifm-color-danger);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+.micIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.errorMessage {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background-color: var(--ifm-color-danger-lightest);
+  border: 1px solid var(--ifm-color-danger-light);
+  border-radius: 4px;
+  color: var(--ifm-color-danger-darkest);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+/* RTL support */
+[dir="rtl"] .errorMessage {
+  left: auto;
+  right: 0;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .voiceButton {
+    width: 36px;
+    height: 36px;
+  }
+
+  .micIcon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .errorMessage {
+    font-size: 0.8125rem;
+    max-width: 200px;
+    white-space: normal;
+  }
+}

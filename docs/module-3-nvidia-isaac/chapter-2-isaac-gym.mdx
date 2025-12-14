@@ -1,0 +1,585 @@
+---
+sidebar_position: 3
+title: Chapter 2 - Isaac Gym for RL
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 2: Isaac Gym for Reinforcement Learning
+
+<ChapterActionsBar chapterTitle="Isaac Gym for RL" />
+
+## Introduction
+
+Teaching a humanoid robot to walk is one of the hardest problems in robotics. Unlike wheeled robots that simply roll, humanoids must continuously balance on two legs while coordinating dozens of joints—hips, knees, ankles, arms—to maintain stability. Traditional control approaches require hand-tuned PID controllers and inverse kinematics, taking engineers months to perfect. Even then, these controllers often fail on uneven terrain or when pushed.
+
+**Reinforcement Learning (RL)** offers a radically different approach: instead of programming walking behavior, you let the robot **learn** it through trial and error. You define a reward function (e.g., "move forward without falling"), and the robot explores millions of actions, gradually discovering which joint torques produce stable gaits. The catch? Training requires 10-100 million simulation steps—running sequentially on a CPU would take months.
+
+Enter **Isaac Gym**: NVIDIA's GPU-accelerated RL framework that runs **4,000-16,000 parallel simulations on a single GPU**. What takes months on CPUs completes in **hours** on an RTX 4090 or A100. In this chapter, you'll train a bipedal humanoid to walk from scratch, watching it progress from falling instantly to stable locomotion in under 2 hours of training time.
+
+## Why Isaac Gym? The Speed Revolution
+
+Traditional RL frameworks (Gym, PyBullet, MuJoCo) run on CPUs, simulating one environment at a time. Even multi-process parallelization hits bottlenecks:
+- **Communication overhead**: Transferring states/actions between processes is slow
+- **CPU-bound physics**: Physics updates can't leverage GPU cores
+- **Limited parallelism**: Running 1,000 processes crashes most systems
+
+**Isaac Gym's GPU-Native Design**:
+- **Physics on GPU**: All rigid body dynamics run on CUDA cores
+- **Parallel environments**: Simulate 1,000-16,000 robots simultaneously in GPU memory
+- **Zero data transfer**: States, actions, rewards computed entirely on GPU—no CPU roundtrips
+- **Tensor interface**: Direct access to states/actions as PyTorch tensors
+
+**Performance Comparison** (training a bipedal walker for 10M steps):
+
+| Method | Hardware | Wall Time | Cost (cloud) |
+|--------|----------|-----------|--------------|
+| Single CPU env (Gym) | 16-core CPU | 120 hours | $480 |
+| 100 parallel CPUs (MPI) | 100-core cluster | 12 hours | $600 |
+| Isaac Gym (2048 envs) | RTX 4090 | 1.5 hours | $3 |
+| Isaac Gym (4096 envs) | A100 GPU | 45 minutes | $2 |
+
+**80x speedup, 200x cost reduction.**
+
+## Installing Isaac Gym
+
+Isaac Gym is distributed separately from Isaac Sim (they're complementary but distinct tools).
+
+### Prerequisites
+
+- **NVIDIA GPU**: GTX 1660 or better (RTX 30 series+ recommended)
+- **CUDA**: 11.3+ (check with `nvcc --version`)
+- **Ubuntu**: 20.04 or 22.04
+- **Python**: 3.7-3.10
+- **PyTorch**: 1.11+ with CUDA support
+
+### Installation Steps
+
+```bash
+# 1. Download Isaac Gym from NVIDIA
+# Visit: https://developer.nvidia.com/isaac-gym
+# Download "Isaac Gym Preview 4" (latest as of 2024)
+# Requires NVIDIA Developer account (free)
+
+# 2. Extract the archive
+cd ~/Downloads
+tar -xf IsaacGym_Preview_4_Package.tar.gz
+cd isaacgym
+
+# 3. Create a Python virtual environment
+python3 -m venv ~/.isaac-gym-venv
+source ~/.isaac-gym-venv/bin/activate
+
+# 4. Install Isaac Gym Python package
+cd python
+pip install -e .
+
+# 5. Install PyTorch with CUDA support (if not already installed)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# 6. Verify installation
+cd ../
+python examples/1080_balls_of_solitude.py
+
+# You should see 1080 balls bouncing in a window (GPU physics demo)
+```
+
+**Troubleshooting**:
+- **ImportError: libpython3.8.so**: Install Python dev libraries: `sudo apt-get install python3.8-dev`
+- **CUDA mismatch**: Ensure PyTorch CUDA version matches your system CUDA (`nvcc --version`)
+- **Segmentation fault on launch**: Update NVIDIA drivers to 515+
+
+## Understanding Isaac Gym's Architecture
+
+Isaac Gym differs from traditional RL environments (Gym, Brax, MuJoCo) in several ways:
+
+### Traditional RL Flow (Gym + PyBullet)
+```
+1. env.reset() → returns state (numpy array)
+2. action = policy(state)
+3. state, reward, done = env.step(action)
+4. [Repeat 2-3 for N steps]
+5. Copy transitions to GPU for NN training
+```
+
+**Bottleneck**: Steps 1-4 run on CPU; data copied to GPU for training → slow
+
+### Isaac Gym Flow (GPU-Native)
+```
+1. env.reset_all() → returns state tensor (torch.Tensor on GPU)
+2. action = policy(state)  # policy runs on GPU
+3. state, reward, done = env.step(actions)  # physics on GPU
+4. [Repeat 2-3 for N steps - all on GPU]
+5. No data transfer - everything in GPU memory
+```
+
+**Key Insight**: States, actions, rewards are **PyTorch tensors** that never leave the GPU.
+
+### Vectorized API
+
+Isaac Gym exposes a **vectorized API**: instead of stepping one environment, you step **all environments simultaneously**.
+
+```python
+# Traditional (sequential)
+for env in envs:
+    state, reward, done = env.step(action)
+
+# Isaac Gym (vectorized)
+states, rewards, dones = envs.step(actions)  # Step 4096 envs at once
+# states: Tensor(4096, obs_dim)
+# rewards: Tensor(4096,)
+# dones: Tensor(4096,)
+```
+
+This matches how GPUs work: SIMD (Single Instruction, Multiple Data) parallelism across thousands of cores.
+
+## Building Your First Environment: Cartpole
+
+Before training humanoids, let's start simple with **Cartpole** (balance a pole on a moving cart).
+
+### Environment Structure
+
+```python
+# cartpole_env.py
+from isaacgym import gymapi
+from isaacgym import gymutil
+import torch
+import numpy as np
+
+class CartpoleEnv:
+    def __init__(self, num_envs=2048, device='cuda:0'):
+        self.num_envs = num_envs
+        self.device = device
+
+        # Initialize Gym
+        self.gym = gymapi.acquire_gym()
+
+        # Create simulation
+        sim_params = gymapi.SimParams()
+        sim_params.dt = 1.0 / 60.0  # 60 Hz
+        sim_params.substeps = 2
+        sim_params.up_axis = gymapi.UP_AXIS_Z
+        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
+
+        # Use GPU pipeline
+        sim_params.use_gpu_pipeline = True
+        sim_params.physx.use_gpu = True
+
+        self.sim = self.gym.create_sim(0, 0, gymapi.SIM_PHYSX, sim_params)
+
+        # Load assets
+        self._create_envs()
+
+        # Prepare for rendering
+        self.gym.prepare_sim(self.sim)
+
+        # Observation and action dimensions
+        self.num_obs = 4  # [cart_pos, cart_vel, pole_angle, pole_angular_vel]
+        self.num_acts = 1  # force applied to cart
+
+        # Buffers (GPU tensors)
+        self.obs_buf = torch.zeros((self.num_envs, self.num_obs), device=self.device)
+        self.reward_buf = torch.zeros(self.num_envs, device=self.device)
+        self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
+
+    def _create_envs(self):
+        # Define asset (cart + pole)
+        asset_root = "assets"
+        asset_file = "cartpole.urdf"
+
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = False
+        cartpole_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+
+        # Create environments
+        spacing = 2.0
+        env_lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        env_upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        self.envs = []
+        for i in range(self.num_envs):
+            env = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
+            cartpole_handle = self.gym.create_actor(env, cartpole_asset, gymapi.Transform(), "cartpole", i, 1, 0)
+            self.envs.append(env)
+
+    def reset(self):
+        # Reset all environments
+        self.obs_buf[:] = 0
+        self.reward_buf[:] = 0
+        self.reset_buf[:] = 0
+        return self.obs_buf
+
+    def step(self, actions):
+        # Apply actions (forces to cart)
+        forces = actions * 10.0  # Scale action
+        for i, env in enumerate(self.envs):
+            self.gym.apply_actor_dof_forces(env, 0, forces[i].cpu().numpy())
+
+        # Step physics
+        self.gym.simulate(self.sim)
+        self.gym.fetch_results(self.sim, True)
+
+        # Compute observations and rewards
+        self._compute_observations()
+        self._compute_rewards()
+
+        return self.obs_buf, self.reward_buf, self.reset_buf
+
+    def _compute_observations(self):
+        # Read state from simulation (cart position, pole angle, etc.)
+        # Simplified for clarity
+        dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        self.obs_buf[:, 0] = dof_states[:, 0]  # cart position
+        self.obs_buf[:, 1] = dof_states[:, 1]  # cart velocity
+        # ... (extract pole angle and angular velocity)
+
+    def _compute_rewards(self):
+        # Reward = time alive - penalty for tipping over
+        pole_angle = self.obs_buf[:, 2]
+        self.reward_buf = 1.0 - torch.abs(pole_angle) / np.pi
+
+        # Reset if pole falls (|angle| > 45 degrees)
+        self.reset_buf = torch.where(torch.abs(pole_angle) > 0.785, 1, 0)
+```
+
+### Training with PPO
+
+```python
+# train_cartpole.py
+import torch
+import torch.nn as nn
+from torch.distributions import Normal
+
+# Simple policy network
+class Policy(nn.Module):
+    def __init__(self, obs_dim, act_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, 64), nn.ReLU(),
+            nn.Linear(64, 64), nn.ReLU(),
+            nn.Linear(64, act_dim)
+        )
+
+    def forward(self, obs):
+        return torch.tanh(self.net(obs))
+
+# Initialize environment and policy
+env = CartpoleEnv(num_envs=4096)
+policy = Policy(env.num_obs, env.num_acts).cuda()
+optimizer = torch.optim.Adam(policy.parameters(), lr=3e-4)
+
+# Training loop
+obs = env.reset()
+for step in range(10000):
+    # Collect rollouts
+    actions = policy(obs)
+    obs, rewards, dones = env.step(actions)
+
+    # Compute policy gradient loss (simplified PPO)
+    loss = -rewards.mean()  # Maximize reward
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    if step % 100 == 0:
+        print(f"Step {step}, Avg Reward: {rewards.mean().item():.2f}")
+```
+
+**Result**: Cartpole learns to balance in ~1,000 steps (30 seconds on RTX 4090).
+
+## Training a Humanoid to Walk
+
+Now the real challenge: **training a bipedal humanoid** using the Ant or Humanoid assets.
+
+### Step 1: Load Humanoid Environment
+
+Isaac Gym includes a pre-built `Humanoid` environment:
+
+```python
+from isaacgymenvs.tasks.humanoid import Humanoid
+from isaacgymenvs.utils.rlgames_utils import RLGPUEnv
+
+# Create 4096 parallel humanoid environments
+envs = RLGPUEnv(num_envs=4096, task="Humanoid")
+
+# Observation space: 108-dimensional (joint angles, velocities, orientation)
+# Action space: 21-dimensional (torques for 21 DoF)
+```
+
+### Step 2: Define Reward Function
+
+The reward function shapes what the robot learns. For walking:
+
+```python
+def compute_humanoid_reward(
+    obs_buf,
+    progress_buf,
+    actions,
+    up_weight=0.1,
+    heading_weight=0.5,
+    energy_weight=0.05
+):
+    # 1. Stay upright (penalize tilting)
+    up_vector = obs_buf[:, 2]  # Z-component of torso orientation
+    up_reward = torch.clamp(up_vector, 0, 1)
+
+    # 2. Move forward (reward velocity in X direction)
+    forward_vel = obs_buf[:, 10]
+    heading_reward = forward_vel
+
+    # 3. Minimize energy usage (penalize large torques)
+    energy_penalty = torch.sum(actions ** 2, dim=-1)
+
+    # Combined reward
+    reward = (
+        up_weight * up_reward +
+        heading_weight * heading_reward -
+        energy_weight * energy_penalty
+    )
+
+    return reward
+```
+
+**Design Choices**:
+- **Upright bonus**: Prevents robot from crawling (common failure mode)
+- **Forward velocity**: Encourages movement
+- **Energy penalty**: Promotes efficient gaits (less flailing)
+
+### Step 3: Train with RL Games (PPO Library)
+
+Isaac Gym integrates with **RL Games**, a high-performance PPO implementation:
+
+```bash
+# Install RL Games
+pip install rl-games
+
+# Train humanoid
+cd isaacgymenvs
+python train.py task=Humanoid headless=True num_envs=4096
+```
+
+**Training Parameters** (from `humanoid.yaml`):
+```yaml
+name: Humanoid
+
+env:
+  numEnvs: 4096
+  episodeLength: 1000
+  enableDebugVis: False
+
+train:
+  algorithm: PPO
+  horizon_length: 16
+  minibatch_size: 8192
+  num_epochs: 5
+  learning_rate: 3e-4
+  gamma: 0.99  # Discount factor
+  clip_value: 0.2
+```
+
+### Step 4: Monitor Training Progress
+
+```python
+# Training metrics (logged to TensorBoard)
+# - reward_mean: Average episode reward
+# - episode_length_mean: How long before falling
+# - fps: Simulation frames per second
+
+# Typical learning curve:
+# 0-1M steps: Robot falls immediately (reward ~0)
+# 1M-5M steps: Learns to stand briefly (reward ~50)
+# 5M-10M steps: Takes first wobbly steps (reward ~200)
+# 10M-20M steps: Stable walking emerges (reward ~500+)
+```
+
+**Launch TensorBoard**:
+```bash
+tensorboard --logdir runs/
+```
+
+Navigate to `localhost:6006` to see live training graphs.
+
+### Step 5: Evaluate Trained Policy
+
+```bash
+# Load checkpoint and run inference
+python train.py task=Humanoid test=True checkpoint=runs/Humanoid_123456/nn/Humanoid.pth
+```
+
+**Watch the robot walk in real-time!** Press `V` in the viewer to toggle camera follow mode.
+
+## Domain Randomization for Sim-to-Real Transfer
+
+RL policies trained in perfect simulation often fail on real robots due to the **reality gap**. **Domain randomization** exposes the policy to variability during training, making it robust to real-world uncertainties.
+
+### What to Randomize
+
+```python
+# In Isaac Gym environment setup
+def apply_domain_randomization(self):
+    # 1. Randomize physics parameters
+    for env in self.envs:
+        actor = self.gym.get_actor_rigid_body_count(env, 0)
+        for i in range(actor):
+            # Randomize mass (±20%)
+            props = self.gym.get_actor_rigid_body_properties(env, 0)
+            props[i].mass *= torch.rand(1).item() * 0.4 + 0.8
+
+            # Randomize friction (0.5 - 1.5)
+            self.gym.set_actor_rigid_body_properties(env, 0, props)
+
+    # 2. Randomize actuator delays (5-15ms)
+    self.actuator_delay = torch.rand(self.num_envs) * 0.01 + 0.005
+
+    # 3. Add sensor noise
+    self.obs_noise_scale = 0.05  # 5% Gaussian noise on observations
+
+    # 4. Randomize ground friction per episode
+    self.ground_friction = torch.rand(self.num_envs) * 0.5 + 0.7
+```
+
+### Apply Randomization at Reset
+
+```python
+def reset(self):
+    self.apply_domain_randomization()
+    # ... rest of reset logic
+```
+
+**Impact**: Policies trained with domain randomization achieve **70-90% success rates** on real robots vs. **10-30%** without randomization.
+
+## Hands-On Exercise: Train a Quadruped (ANT)
+
+**Objective**: Train a 4-legged Ant robot to walk using Isaac Gym.
+
+### Step 1: Launch Ant Training
+
+```bash
+cd isaacgymenvs
+python train.py task=Ant num_envs=8192 headless=False
+```
+
+**Observation**: 8,192 ants appear in a grid. Press `Play` to watch them learn.
+
+### Step 2: Modify Reward Function
+
+Edit `isaacgymenvs/tasks/ant.py`:
+
+```python
+# Original reward: forward velocity only
+reward = forward_vel
+
+# Modified reward: add stability bonus
+def compute_ant_reward(self):
+    forward_vel = self.obs_buf[:, 13]
+    torso_height = self.obs_buf[:, 2]
+
+    # Reward forward motion
+    forward_reward = forward_vel
+
+    # Bonus for maintaining height (prevent crawling)
+    height_bonus = torch.where(torso_height > 0.3, 1.0, 0.0)
+
+    reward = forward_reward + 0.5 * height_bonus
+    return reward
+```
+
+### Step 3: Compare Results
+
+Train two versions:
+1. **Baseline** (original reward): Often learns to crawl
+2. **Modified** (with height bonus): Learns proper walking gait
+
+**Metrics to compare**:
+- Average reward after 10M steps
+- Average episode length
+- Qualitative gait (video comparison)
+
+### Step 4: Export Policy for Deployment
+
+```python
+# Export trained policy as TorchScript (for deployment to real robots)
+import torch
+
+policy = torch.jit.load("runs/Ant/nn/Ant.pth")
+scripted_policy = torch.jit.script(policy)
+scripted_policy.save("ant_policy.pt")
+
+# Deploy to NVIDIA Jetson (edge device)
+# Load policy on robot:
+# policy = torch.jit.load("ant_policy.pt")
+# action = policy(observation)
+```
+
+## Advanced Topics
+
+### 1. Curriculum Learning
+
+Train progressively harder tasks:
+```python
+# Week 1: Flat ground
+# Week 2: Small bumps (5cm height)
+# Week 3: Stairs (10cm steps)
+# Week 4: Uneven terrain
+
+def update_curriculum(self, progress):
+    if progress < 0.25:
+        self.terrain_difficulty = 0  # Flat
+    elif progress < 0.5:
+        self.terrain_difficulty = 1  # Bumps
+    elif progress < 0.75:
+        self.terrain_difficulty = 2  # Stairs
+    else:
+        self.terrain_difficulty = 3  # Random
+```
+
+### 2. Asymmetric Actor-Critic
+
+Use **privileged information** during training (ground truth state) but deploy with only sensor observations:
+
+```python
+# Critic sees ground truth (used only for training)
+critic_obs = torch.cat([
+    robot_state,          # Joint angles, velocities
+    terrain_heightmap,    # Perfect terrain knowledge (privileged)
+    external_forces       # Simulated wind (privileged)
+], dim=-1)
+
+# Actor sees only sensor data (used for deployment)
+actor_obs = torch.cat([
+    robot_state,
+    noisy_imu_data,      # Realistic IMU with noise
+    noisy_joint_encoders # Encoder readings with drift
+], dim=-1)
+```
+
+**Benefit**: Critic learns better value estimates (faster training), while actor learns robust sensor-based policy.
+
+### 3. Multi-Task Learning
+
+Train a single policy for multiple skills:
+```python
+# Task IDs: 0=walk, 1=run, 2=jump, 3=crouch
+task_encoding = torch.nn.functional.one_hot(task_id, num_classes=4)
+policy_input = torch.cat([observation, task_encoding], dim=-1)
+```
+
+## Next Steps
+
+You've now mastered GPU-accelerated reinforcement learning with Isaac Gym:
+- Massively parallel simulation (4,000+ environments)
+- Training bipedal and quadrupedal locomotion
+- Domain randomization for robust sim-to-real transfer
+- Deploying policies to edge devices (Jetson)
+
+In **Chapter 3: Isaac ROS for Perception** (coming soon), you'll integrate trained RL policies with real-time vision systems. You'll run object detection, semantic segmentation, and visual SLAM on NVIDIA Jetson hardware, completing the full autonomy stack: perception → planning → control.
+
+**Challenge Exercise**:
+1. Train a Humanoid with **different reward functions** (e.g., walk backward, side-step, run)
+2. Apply **extreme domain randomization** (±50% mass variation, ±80% friction)
+3. Evaluate the policy's **robustness** by testing on terrains it never saw during training
+4. Compare **sample efficiency**: How many timesteps to reach 80% of max performance?
+   - Baseline PPO
+   - PPO + domain randomization
+   - PPO + curriculum learning
+5. **Export to real robot**: Deploy the policy to a physical platform (if available) and measure sim-to-real transfer success rate

@@ -1,0 +1,485 @@
+---
+sidebar_position: 2
+title: Chapter 1 - Getting Started with Isaac
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 1: NVIDIA Isaac Simの開始
+
+<ChapterActionsBar chapterTitle="Getting Started with NVIDIA Isaac" />
+
+## はじめに
+
+散らかったテーブルからオブジェクトを認識して拾い上げるようにヒューマノイドロボットを訓練することを想像してください。従来の方法を使用すると、異なる角度、照明条件、背景からオブジェクトを示す数千の画像を手動でラベル付けする必要があります。これは数週間の人間の労力を要するプロセスです。**NVIDIA Isaac Sim**を使用すると、ランダム化されたオブジェクトの姿勢、照明、カメラアングルで合成シーンをレンダリングすることにより、数時間で10,000枚の完璧にラベル付けされた画像を生成できます。この合成データは、人間がラベル付けしたデータで訓練されたモデルに匹敵する実世界の精度を達成する認識モデルを訓練します。
+
+Isaac Simはロボティクス開発におけるパラダイムシフトを表しています。高価な物理ロボットでアルゴリズムをテストする代わりに（損傷のリスクがあり、手動リセットが必要）、**フォトリアリスティックな仮想世界**ですべてを開発および検証します。Isaac SimはNVIDIA OmniverseのレンダリングエンジンとPhysX物理を組み合わせて、実世界のように見え、振る舞うデジタルツインを作成します。この章では、Isaac Simをインストールし、インターフェースをナビゲートし、ロボットを生成し、ROS 2統合でシミュレーションを実行し、最初の合成データセットを生成します。
+
+## Isaac Simが異なる理由
+
+モジュール2ではすでにGazeboを使用しました。では、なぜ別のシミュレータを学ぶのでしょうか？比較は次のとおりです。
+
+| 機能 | Gazebo | Isaac Sim |
+|---------|--------|-----------|
+| **レンダリング** | OpenGL（基本） | RTXレイトレーシング（フォトリアリスティック） |
+| **物理エンジン** | ODE、Bullet、DART | NVIDIA PhysX 5 |
+| **GPUアクセラレーション** | 限定的 | フル（物理 + レンダリング） |
+| **合成データ** | 手動エクスポート | 組み込みアノテーションツール |
+| **AI統合** | 外部 | ネイティブ（TensorRT、Triton） |
+| **並列Sim** | マルチプロセス（遅い） | Isaac Gym（GPUネイティブ） |
+| **最適用途** | 物理検証 | 認識トレーニング、RL |
+
+**Isaac Simの主な利点**:
+1. **フォトリアリズム**: レイトレースされた影、反射、グローバルイルミネーションをレンダリング—ビジョンモデルの訓練に不可欠
+2. **合成データ生成**: 自動バウンディングボックス、セグメンテーションマスク、深度マップ
+3. **ドメインランダム化**: マテリアル、照明、オブジェクトの姿勢をランダム化してsim-to-real転送を改善
+4. **ROS 2ネイティブ**: 組み込みROS 2ブリッジ（別のプラグインは不要）
+5. **スケーラビリティ**: 大規模データ生成のためにクラウドGPUでヘッドレス実行
+
+## インストール: Isaac Simのセットアップ
+
+Isaac SimはNVIDIA Omniverse上で動作します。これは3Dシミュレーションとコラボレーションのためのプラットフォームです。完全なインストールプロセスは次のとおりです。
+
+### システム要件
+
+**最小**:
+- **OS**: Ubuntu 20.04または22.04（WSL2経由のWindows 10/11は可能だが制限あり）
+- **GPU**: NVIDIA GTX 1660以降で6GB以上のVRAM
+- **ドライバー**: NVIDIAドライバー515.x以降
+- **RAM**: 16GBシステムメモリ
+- **ストレージ**: 50GB空き容量
+
+**推奨**:
+- **GPU**: NVIDIA RTX 3060以上（レイトレーシング用）
+- **RAM**: 32GB
+- **ストレージ**: 100GB空き容量のSSD
+
+**GPUを確認**:
+```bash
+nvidia-smi
+# ドライバーバージョン（515+であるべき）とGPUモデルを確認
+```
+
+### ステップバイステップインストール
+
+#### 1. NVIDIAドライバーのインストール（必要な場合）
+
+```bash
+# 現在のドライバーを確認
+nvidia-smi
+
+# ドライバーが古い場合、最新をインストール
+sudo apt-get update
+sudo apt-get install nvidia-driver-525  # または最新の利用可能なもの
+sudo reboot
+```
+
+#### 2. NVIDIA Omniverse Launcherのダウンロード
+
+```bash
+# Omniverse Launcherをダウンロード
+cd ~/Downloads
+wget https://install.launcher.omniverse.nvidia.com/installers/omniverse-launcher-linux.AppImage
+
+# 実行可能にする
+chmod +x omniverse-launcher-linux.AppImage
+
+# Launcherを実行
+./omniverse-launcher-linux.AppImage
+```
+
+Omniverse Launcherが開きます—Isaac Simやその他のNVIDIAアプリをインストールするための集中ハブです。
+
+#### 3. Launcher経由でIsaac Simをインストール
+
+1. **サインイン**: NVIDIAアカウントを作成/ログイン（無料）
+2. **Exchangeタブにナビゲート**: "Isaac Sim"を見つける
+3. **インストールをクリック**: 最新バージョンを選択（例：Isaac Sim 2023.1.1）
+4. **場所を選択**: デフォルトは`~/.local/share/ov/pkg/isaac_sim-*`
+5. **ダウンロードを待つ**: 約20GBのダウンロード（接続によって10〜30分）
+
+#### 4. Isaac Simの起動
+
+```bash
+# オプション1: Omniverse Launcherから起動（GUI）
+# Isaac Simの横にある「Launch」ボタンをクリック
+
+# オプション2: コマンドライン起動
+~/.local/share/ov/pkg/isaac_sim-2023.1.1/isaac-sim.sh
+
+# オプション3: Pythonスクリプト起動（自動化用）
+~/.local/share/ov/pkg/isaac_sim-2023.1.1/python.sh my_simulation.py
+```
+
+**初回起動**: Isaac Simがシェーダーとキャッシュを初期化するため、2〜5分かかることが予想されます。
+
+**トラブルシューティング**:
+- **エラー: "GPU not supported"**: ドライバーをアップグレードするか、`--cpu`フラグを使用（非常に遅い）
+- **エラー: "Vulkan initialization failed"**: `vulkan-utils`パッケージをインストール
+- **起動時に黒い画面**: GPUドライバーを更新し、OpenGLサポートを確認
+
+## Isaac Simインターフェースの理解
+
+Isaac Simが開くと、BlenderやUnreal Engineに似たプロフェッショナルな3Dインターフェースが表示されます。主要なパネルを分解してみましょう。
+
+### メインパネル
+
+1. **ビューポート（中央）**: シミュレーション世界の3Dビュー
+   - **ナビゲーション**: 中ボタンドラッグ（パン）、右ボタンドラッグ（回転）、スクロール（ズーム）
+   - **再生コントロール**: 下部でシミュレーションの再生/一時停止/停止
+   - **カメラセレクター**: カメラ間で切り替え（perspective、orthographic、sensor views）
+
+2. **ステージパネル（左）**: すべてのオブジェクトを示すシーン階層
+   - **World**: シーンのルート
+   - **defaultLight**: 環境照明
+   - **GroundPlane**: 床面
+   - **Robots/Assets**: 生成されたモデルがここに表示
+
+3. **プロパティパネル（右）**: 選択されたオブジェクトのインスペクター
+   - **Transform**: 位置、回転、スケール
+   - **Physics**: 質量、摩擦、衝突プロパティ
+   - **Sensors**: カメラ、LiDAR設定
+   - **Materials**: アルベド、粗さ、金属プロパティ（PBRマテリアル）
+
+4. **コンテンツブラウザー（下部）**: アセットライブラリ
+   - `localhost/Isaac/Robots/`にナビゲートして事前構築されたロボットモデルを取得
+   - NVIDIAアセット（Carter、Jetbot、Franka Pandaマニピュレータ）
+   - カスタムURDF/USDモデルをインポート
+
+5. **Pythonコンソール（Window → Script Editor）**: インタラクティブPython REPL
+   - `stage.GetPrimAtPath("/World/Robot")`などのコマンドを実行
+   - 自動化のためのスクリプトをロード
+
+### キーボードショートカット（必須）
+
+- **F**: 選択されたオブジェクトにカメラをフォーカス
+- **スペースバー**: シミュレーションの再生/一時停止
+- **Ctrl+S**: シーンを保存
+- **Ctrl+O**: シーンを開く
+- **Delete**: 選択されたオブジェクトを削除
+- **W/E/R**: 移動/回転/スケールツール
+- **Z**: 元に戻す
+- **Alt+左クリック**: ビューポートでオブジェクトを選択
+
+## 最初のロボットのロード: NVIDIA Carter
+
+NVIDIAはテスト用にいくつかの事前構築されたロボットを提供しています。**Carter**から始めましょう—ステレオカメラとLiDARを備えた差動駆動移動ロボットです。
+
+### ステップ1: 新しいシーンを作成
+
+```
+1. File → New（またはCtrl+N）
+2. 現在のシーンを閉じることを確認
+```
+
+地面のある空のステージが表示されます。
+
+### ステップ2: Carterロボットを生成
+
+```python
+# 方法1: ドラッグアンドドロップ（最も簡単）
+# 1. コンテンツブラウザーを開く（下部パネル）
+# 2. ナビゲート: localhost/Isaac/Robots/Carter/
+# 3. "carter_v1.usd"をビューポートにドラッグ
+
+# 方法2: Pythonスクリプト（自動化用）
+# Script Editorを開く（Window → Script Editor）
+# 貼り付けて実行:
+
+from pxr import Usd, UsdGeom
+import omni.usd
+
+stage = omni.usd.get_context().get_stage()
+
+# Carterロボットをロード
+carter_path = "/World/Carter"
+omni.kit.commands.execute(
+    "CreateReference",
+    usd_context=omni.usd.get_context(),
+    path_to=carter_path,
+    asset_path="omniverse://localhost/Isaac/Robots/Carter/carter_v1.usd"
+)
+
+# Carterを原点に配置
+carter_prim = stage.GetPrimAtPath(carter_path)
+xform = UsdGeom.Xformable(carter_prim)
+xform.ClearXformOpOrder()
+xform.AddTranslateOp().Set((0, 0, 0))
+
+print(f"Carter robot spawned at {carter_path}")
+```
+
+**結果**: Carterがビューポートに表示されます。マウスを使用してビューを回転させ、検査します。
+
+### ステップ3: 物理を設定
+
+ロボットが重力と衝突と相互作用するために:
+
+```
+1. ステージパネルでCarterを選択（/World/Carter）
+2. プロパティパネル → 物理セクション
+3. "Rigid Body"が有効になっていることを確認
+4. 衝突メッシュが割り当てられていることを確認
+```
+
+### ステップ4: 基本照明を追加
+
+```
+1. Create → Light → Dome Light
+2. プロパティパネル:
+   - Intensity: 1000
+   - Color: White (1, 1, 1)
+3. リアルなレンダリングのために"Shadows"を有効化
+```
+
+### ステップ5: シミュレーションを実行
+
+```
+1. スペースバーを押す（または再生ボタンをクリック）
+2. Carterは重力により地面に落ち着くはず
+3. 再度スペースバーを押して一時停止
+```
+
+**観察**: 物理が安定化するにつれて、Carterのホイールがわずかに回転します。これは物理シミュレーションがアクティブであることを確認します。
+
+## ロボットの制御: ROS 2統合
+
+静的なロボットは役に立ちません—ROS 2コマンドを使用してCarterを動かしましょう。
+
+### ROS 2ブリッジの有効化
+
+Isaac SimにはビルトインのROS 2ブリッジが含まれています（別のインストールは不要）:
+
+```
+1. Window → Extensions
+2. "ROS2 Bridge"を検索
+3. "omni.isaac.ros2_bridge"を有効化
+4. 拡張機能がロードされるのを待つ（緑のチェックマーク）
+```
+
+**ROS 2が検出されたことを確認**:
+```bash
+# Isaac Sim外のターミナルで
+ros2 topic list
+# 以下が表示されるはず: /rosout、/parameter_events（ROS 2コアが実行中）
+```
+
+### CarterにROS 2 Publishersを追加
+
+次のためのpublishersを追加します:
+- **カメラフィード**（`/camera/rgb/image_raw`）
+- **LiDARスキャン**（`/scan`）
+- **オドメトリ**（`/odom`）
+
+```python
+# Isaac Sim Script Editorで
+import omni.graph.core as og
+
+# ROS2カメラpublisherを作成
+camera_graph = og.Controller.create_graph({"graph_path": "/ActionGraph_Camera", "evaluator_name": "execution"})
+
+# CarterのカメラにカメラコンポーネントUを追加
+camera_node = og.Controller.create_node(
+    camera_graph,
+    "omni.isaac.ros2_bridge.ROS2CameraHelper",
+    attributes={
+        "cameraPath": "/World/Carter/chassis/stereo_cam_left",
+        "topicName": "camera/rgb/image_raw",
+        "frameId": "camera_link"
+    }
+)
+
+print("Camera publisher configured: /camera/rgb/image_raw")
+```
+
+### Twistメッセージでcarterを制御
+
+Isaac SimのCarterには、`/cmd_vel`をリッスンする差動駆動コントローラーが含まれています:
+
+```bash
+# ターミナル1: Isaac Simを実行（すでに実行中）
+
+# ターミナル2: 速度コマンドを送信
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.5}, angular: {z: 0.0}}" --rate 10
+
+# Carterはシミュレーションで前進するはず
+```
+
+**キーボードTeleop**（より簡単）:
+```bash
+# teleop keyboardをインストール
+sudo apt-get install ros-humble-teleop-twist-keyboard
+
+# teleopを実行
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+  --ros-args --remap cmd_vel:=/cmd_vel
+
+# i/j/k/lキーを使用してCarterを操縦
+```
+
+## RVizでセンサーデータを可視化
+
+カメラとLiDARデータストリームを確認しましょう:
+
+```bash
+# ターミナル1: Isaac Sim（実行中）
+
+# ターミナル2: RVizを起動
+rviz2
+
+# RVizで:
+# 1. Fixed Frameを"odom"に設定
+# 2. Add → Image → トピックを/camera/rgb/image_rawに設定
+# 3. Add → LaserScan → トピックを/scanに設定
+# 4. Add → RobotModel（Carter URDFが利用可能な場合）
+```
+
+**期待される出力**:
+- RVizはCarterのカメラフィードを表示（環境をロードした場合はフォトリアリスティックな倉庫ビュー）
+- LiDARスキャンは360°の距離測定を示します
+- ロボットモデルはCarterの姿勢を示します
+
+## 合成データ生成: ラベル付きデータセットの作成
+
+Isaac Simのキラー機能の1つは**自動アノテーション**です。オブジェクト検出用のラベル付き画像のデータセットを生成しましょう。
+
+### ステップ1: 散らかったシーンを作成
+
+```
+1. コンテンツブラウザー → localhost/Isaac/Props/
+2. シーンにオブジェクトをドラッグ:
+   - Props/YCB/Crackerbox
+   - Props/YCB/MustardBottle
+   - Props/YCB/TomatoSoup
+3. テーブル上にランダムに配置
+```
+
+### ステップ2: Replicatorを有効化（合成データジェネレータ）
+
+```python
+# Script Editor
+import omni.replicator.core as rep
+
+# レンダリング用のカメラを定義
+camera = rep.create.camera(position=(1, 1, 1), look_at=(0, 0, 0))
+
+# ランダマイザーを定義
+with rep.trigger.on_frame(num_frames=100):
+    with rep.create.group(["/World/Crackerbox", "/World/MustardBottle", "/World/TomatoSoup"]):
+        rep.modify.pose(
+            position=rep.distribution.uniform((-0.5, -0.5, 0), (0.5, 0.5, 0.2)),
+            rotation=rep.distribution.uniform((0, 0, 0), (360, 360, 360))
+        )
+
+    # 照明をランダム化
+    with rep.create.group(["/World/DomeLight"]):
+        rep.modify.attribute("inputs:intensity", rep.distribution.uniform(500, 2000))
+
+# ライターを添付（出力フォーマット）
+rp_writer = rep.WriterRegistry.get("BasicWriter")
+rp_writer.initialize(
+    output_dir="~/isaac_sim_data/",
+    rgb=True,
+    bounding_box_2d_tight=True,
+    semantic_segmentation=True
+)
+rp_writer.attach([camera])
+
+# replicatorを実行
+rep.orchestrator.run()
+```
+
+**結果**: Isaac Simは次のものを含む100枚の画像を生成します:
+- RGB画像（`rgb/`）
+- COCO形式のバウンディングボックス（`bounding_box_2d_tight/`）
+- セグメンテーションマスク（`semantic_segmentation/`）
+
+**使用例**: 実際の写真を手動でラベル付けする代わりに、これらの100枚の合成画像を使用してYOLOv8モデルを訓練します。
+
+## ハンズオン演習: 認識制御ロボットの構築
+
+**目標**: カメラと事前訓練されたオブジェクト検出モデルを使用して障害物を検出することにより、Carterを自律的にナビゲートさせます。
+
+### ステップ1: 倉庫環境をロード
+
+```
+1. コンテンツブラウザー → localhost/Isaac/Environments/
+2. "Simple_Warehouse.usd"をロード
+3. 倉庫にCarterを生成
+```
+
+### ステップ2: カメラフィードでオブジェクト検出（YOLO）を実行
+
+```bash
+# Isaac ROS packagesをインストール（Isaac Simではなくホストマシンで）
+sudo apt-get install ros-humble-isaac-ros-yolov8
+
+# YOLOノードを起動
+ros2 launch isaac_ros_yolov8 isaac_ros_yolov8.launch.py \
+  input_topic:=/camera/rgb/image_raw \
+  output_topic:=/detections
+
+# DetectionsはVision_msgs/Detection2DArrayとして公開
+```
+
+### ステップ3: シンプルな障害物回避コントローラーを作成
+
+```python
+# obstacle_avoid.py
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from vision_msgs.msg import Detection2DArray
+
+class ObstacleAvoider(Node):
+    def __init__(self):
+        super().__init__('obstacle_avoider')
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.det_sub = self.create_subscription(Detection2DArray, '/detections', self.detection_callback, 10)
+
+    def detection_callback(self, msg):
+        twist = Twist()
+        if len(msg.detections) > 0:
+            # 中央で障害物を検出 → 回転
+            twist.linear.x = 0.0
+            twist.angular.z = 0.5
+        else:
+            # 障害物なし → 前進
+            twist.linear.x = 0.3
+            twist.angular.z = 0.0
+
+        self.cmd_pub.publish(twist)
+
+def main():
+    rclpy.init()
+    node = ObstacleAvoider()
+    rclpy.spin(node)
+
+if __name__ == '__main__':
+    main()
+```
+
+**実行**:
+```bash
+python3 obstacle_avoid.py
+```
+
+**結果**: Carterはオブジェクト（人、箱、ロボット）を検出するまで前進し、それから回避するために回転します。
+
+## 次のステップ
+
+これでIsaac Simの基本をマスターしました:
+- インストールとインターフェースナビゲーション
+- ロボットの生成と制御
+- センサーデータストリーミングのためのROS 2統合
+- 認識モデルのための合成データ生成
+
+**Chapter 2: 強化学習のためのIsaac Gym**では、GPU加速並列シミュレーションを使用してヒューマノイドロボットにゼロから歩行を訓練します。4,096の並列環境をセットアップし、報酬関数を定義し、ロボットが数週間ではなく数時間でバランスと移動を学ぶのを見ます。
+
+**チャレンジ演習**:
+1. Carterをヒューマノイドロボットに置き換える（例：`localhost/Isaac/Robots/Franka/franka.usd`）
+2. 異なる角度に複数のカメラを追加
+3. ランダム化された照明とオブジェクトの姿勢で1,000枚の画像のデータセットを生成
+4. 合成データで単純なオブジェクト分類器（ロジスティック回帰または小さなCNN）を訓練
+5. 実際の画像でテストし、精度を測定（sim-to-real検証）

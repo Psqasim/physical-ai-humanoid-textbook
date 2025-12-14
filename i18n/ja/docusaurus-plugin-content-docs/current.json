@@ -1,0 +1,22 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.tutorialSidebar.category.Module 1 – ROS 2: Robotic Nervous System": {
+    "message": "モジュール1 – ROS 2: ロボットの神経系",
+    "description": "The label for category Module 1 – ROS 2: Robotic Nervous System in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Module 2 – Digital Twin (Gazebo & Unity)": {
+    "message": "モジュール2 – デジタルツイン (Gazebo & Unity)",
+    "description": "The label for category Module 2 – Digital Twin (Gazebo & Unity) in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Module 3 – NVIDIA Isaac (AI-Robot Brain)": {
+    "message": "モジュール3 – NVIDIA Isaac (AIロボット頭脳)",
+    "description": "The label for category Module 3 – NVIDIA Isaac (AI-Robot Brain) in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.Module 4 – Vision-Language-Action (VLA)": {
+    "message": "モジュール4 – Vision-Language-Action (VLA)",
+    "description": "The label for category Module 4 – Vision-Language-Action (VLA) in sidebar tutorialSidebar"
+  }
+}

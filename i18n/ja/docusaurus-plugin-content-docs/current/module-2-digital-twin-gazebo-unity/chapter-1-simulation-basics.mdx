@@ -1,0 +1,546 @@
+---
+sidebar_position: 2
+title: Chapter 1 - シミュレーションの基礎
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 1: シミュレーションの基礎
+
+<ChapterActionsBar chapterTitle="Simulation Basics" />
+
+## はじめに
+
+病院の廊下を移動し、薬を配達し、患者とやり取りするように設計されたヒューマノイドロボットを開発していると想像してください。このロボットを実際の病院に配備する前に—衝突が誰かを傷つけたり、ナビゲーションの失敗が重要な操作を妨げたりする可能性がある場所で—次のような質問に答える必要があります：ロボットは狭い廊下を安全に移動できますか？視覚システムは蛍光灯の下で機能しますか？患者が予期せずその経路を横切ったらどうなりますか？
+
+**ロボットシミュレーション**は、これらの質問に答えるための安全でコスト効率の高いサンドボックスを提供します。50万ドルのプロトタイプを危険にさらす代わりに、失敗が安価で反復が速い仮想世界で動作をテストします。シミュレーションは単なる開発ツールではありません—アルゴリズム設計と実世界への配備の間に位置する**検証レイヤー**です。
+
+この章では、業界標準のロボティクスシミュレータである**Gazebo**をマスターします。Gazeboが物理（重力、衝突、摩擦）をモデル化し、センサー（カメラ、LiDAR、IMU）をシミュレートし、シームレスなコントローラテスト用にROS 2と統合する方法を学びます。終了までに、シミュレートされた環境でモバイルロボットをspawnし、ROS 2コマンドで制御し、RVizでセンサーデータを可視化します—これらのスキルはヒューマノイドロボットのテストに直接変換されます。
+
+## シミュレーションが重要な理由：リアリティギャップ
+
+シミュレーションは強力ですが、完璧ではありません。**リアリティギャップ**は、シミュレートされた動作と実世界の動作の違いを指します。例えば：
+
+- **物理的近似**：Gazeboは摩擦を定数係数としてモデル化しますが、実世界の摩擦は表面のテクスチャ、湿度、摩耗によって変化します。
+- **センサーノイズ**：シミュレートされたカメラは、明示的にノイズを追加しない限り完璧な画像を生成します。実際のカメラはモーションブラー、レンズ歪み、ダイナミックレンジの制限に悩まされます。
+- **アクチュエータダイナミクス**：シミュレートされたモーターはコマンドに瞬時に応答します。実際のモーターには遅延、バックラッシュ、熱制限があります。
+
+これらのギャップにもかかわらず、シミュレーションは次の理由で非常に貴重です：
+
+1. **迅速なプロトタイピング**：数週間のハードウェアテストに対して、1日で100のアルゴリズムバリエーションをテストします。
+2. **エッジケースのカバレッジ**：物理的に再現が困難な稀なシナリオ（センサー故障、極端な地形）をシミュレートします。
+3. **並列化**：強化学習ポリシーをトレーニングするために、クラウドで1,000のシミュレーションを同時に実行します。
+
+**ベストプラクティス**：**アルゴリズム検証**（私のパスプランナーは障害物を回避しますか？）にシミュレーションを使用し、その後**ハードウェア検証**を実行して実世界のパフォーマンスを測定し、モデルを改良します。
+
+## Gazeboのセットアップ
+
+Gazeboには2つの主要なバージョンがあります：
+- **Gazebo Classic**（バージョン9-11）：安定しており、広く使用されていますが、非推奨です。
+- **Gazebo Fortress/Harmonic**（新しいアーキテクチャ）：モダンで、モジュール式、より良いパフォーマンス。
+
+このコースでは、**Gazebo Fortress**（ROS 2 Humbleと互換性あり）を使用します。ROS 2 Foxyを使用している場合は、Gazebo Classic 11を使用してください。
+
+### インストール（Ubuntu 22.04 + ROS 2 Humble）
+
+```bash
+# Install Gazebo Fortress
+sudo apt-get update
+sudo apt-get install gazebo
+
+# Install ROS 2 Gazebo integration
+sudo apt-get install ros-humble-gazebo-ros-pkgs
+
+# Verify installation
+gazebo --version
+# Expected output: Gazebo multi-robot simulator, version 11.x or higher
+
+# Test Gazebo GUI
+gazebo
+```
+
+`gazebo`を実行すると、地面と基本的な照明を含む空の世界を示すウィンドウが開くはずです。これでインストールが機能していることが確認されます。
+
+**トラブルシューティング**：
+- **Missing libgazebo**：`sudo apt-get install libgazebo11-dev`を実行
+- **Graphics issues**：GPUドライバーを更新するか、`gazebo --verbose`を実行してOpenGL互換性を確認
+
+### Gazeboアーキテクチャの概要
+
+Gazeboは2つの主要コンポーネントで構成されています：
+
+1. **gzserver**（Physics Server）：物理シミュレーションループを実行し、センサー出力を計算し、データを公開します。これはヘッドレスで、GPUなしでクラウドインスタンスで実行できます。
+
+2. **gzclient**（GUI Client）：シミュレーションを可視化します。ネットワークソケット経由で`gzserver`に接続し、リモート可視化を可能にします。
+
+それらを別々に実行できます：
+```bash
+# Terminal 1: Start physics server only
+gzserver
+
+# Terminal 2: Start GUI client (connects to running server)
+gzclient
+```
+
+この分離はクラウドベースのシミュレーションにとって重要です：強力なクラウドインスタンスで`gzserver`を実行し、可視化のためにラップトップで`gzclient`を実行します。
+
+## URDFの理解：ロボット記述フォーマット
+
+**URDF（Unified Robot Description Format）**は、ロボットのキネマティクス、ダイナミクス、視覚的外観を記述するためのXMLベースの言語です。すべてのlink（剛体）、joint（link間の接続）、センサー、アクチュエータがURDFで定義されます。
+
+### シンプルなURDFの構造
+
+最小限の2輪モバイルロボットを作成しましょう：
+
+```xml
+<?xml version="1.0"?>
+<robot name="simple_mobile_robot">
+
+  <!-- Base Link (Robot Chassis) -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="0.6 0.4 0.2"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0 0 0.8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.6 0.4 0.2"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="10.0"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.2"/>
+    </inertial>
+  </link>
+
+  <!-- Left Wheel Link -->
+  <link name="left_wheel">
+    <visual>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Joint: Base to Left Wheel (Continuous Rotation) -->
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_wheel"/>
+    <origin xyz="0 0.25 0" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+  <!-- Right Wheel (mirror of left wheel) -->
+  <link name="right_wheel">
+    <visual>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_wheel"/>
+    <origin xyz="0 -0.25 0" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+</robot>
+```
+
+**主要な要素**：
+- **`<link>`**：次のものを持つ剛体を定義します：
+  - **`<visual>`**：どのように見えるか（ジオメトリ、色）
+  - **`<collision>`**：衝突検出の形状（多くの場合、ビジュアルよりシンプル）
+  - **`<inertial>`**：質量と慣性テンソル（物理に必要）
+
+- **`<joint>`**：2つのlinkを接続します。タイプには次のものがあります：
+  - `continuous`：無制限の回転（車輪）
+  - `revolute`：制限された回転（肘関節、-πからπ）
+  - `prismatic`：直線運動（エレベーター、伸縮アーム）
+  - `fixed`：動きなし（カメラが剛性的に取り付けられている）
+
+- **`<origin>`**：親に対する子linkの位置（`xyz`）と向き（`rpy` = roll-pitch-yaw）を指定します。
+
+### RVizでURDFを可視化
+
+シミュレートする前に、URDF構造を確認します：
+
+```bash
+# Install tools
+sudo apt-get install ros-humble-joint-state-publisher-gui ros-humble-robot-state-publisher
+
+# Create a ROS 2 package for your robot
+cd ~/ros2_ws/src
+ros2 pkg create my_robot_description --build-type ament_python
+
+# Create urdf directory
+mkdir -p my_robot_description/urdf
+# Save the URDF above as my_robot_description/urdf/robot.urdf
+
+# Build package
+cd ~/ros2_ws
+colcon build --packages-select my_robot_description
+source install/setup.bash
+
+# Visualize in RViz
+ros2 launch urdf_tutorial display.launch.py model:=~/ros2_ws/src/my_robot_description/urdf/robot.urdf
+```
+
+RVizは、ジョイントを移動するスライダー付きでロボットを表示します。これにより、物理を追加する前にURDFキネマティクスが正しいことが確認されます。
+
+## GazeboでのロボットのSpawn
+
+Gazeboは**SDF（Simulation Description Format）**を使用します。これはURDFに似ていますが、シミュレーション固有のタグ（摩擦係数、センサープラグイン）が含まれています。幸いなことに、GazeboはURDFをSDFに自動的に変換できます。
+
+### 方法1：コマンドラインによる直接Spawn
+
+```bash
+# Start Gazebo
+gazebo
+
+# In a new terminal, spawn the robot
+ros2 run gazebo_ros spawn_entity.py \
+  -entity my_robot \
+  -file ~/ros2_ws/src/my_robot_description/urdf/robot.urdf \
+  -x 0 -y 0 -z 0.5
+```
+
+ロボットは位置（0、0、0.5）のGazeboに表示されます。`-z 0.5`は、地面の上にspawnし、重力の下で落下することを保証します。
+
+### 方法2：Launchファイル（推奨）
+
+`my_robot_description/launch/gazebo.launch.py`を作成します：
+
+```python
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
+    pkg_my_robot = get_package_share_directory('my_robot_description')
+
+    # Path to URDF
+    urdf_file = os.path.join(pkg_my_robot, 'urdf', 'robot.urdf')
+
+    # Start Gazebo server and client
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
+        )
+    )
+
+    # Spawn robot
+    spawn_entity = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=['-entity', 'my_robot', '-file', urdf_file, '-z', '0.5'],
+        output='screen'
+    )
+
+    return LaunchDescription([
+        gazebo,
+        spawn_entity
+    ])
+```
+
+次のコマンドで起動します：
+```bash
+ros2 launch my_robot_description gazebo.launch.py
+```
+
+## センサーのシミュレーション
+
+実際のロボットは知覚と状態推定のためにセンサーに依存します。Gazeboはカメラ、LiDAR、IMU、GPSなどをシミュレートできます。
+
+### カメラセンサーの追加
+
+URDFを変更してカメラlinkとGazeboプラグインを追加します：
+
+```xml
+<!-- Camera Link -->
+<link name="camera_link">
+  <visual>
+    <geometry>
+      <box size="0.05 0.05 0.05"/>
+    </geometry>
+    <material name="red">
+      <color rgba="0.8 0 0 1"/>
+    </material>
+  </visual>
+</link>
+
+<joint name="camera_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="camera_link"/>
+  <origin xyz="0.3 0 0.1" rpy="0 0 0"/>
+</joint>
+
+<!-- Gazebo Plugin for Camera -->
+<gazebo reference="camera_link">
+  <sensor name="camera" type="camera">
+    <update_rate>30</update_rate>
+    <camera>
+      <horizontal_fov>1.047</horizontal_fov>
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>100</far>
+      </clip>
+    </camera>
+    <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>image_raw:=camera/image</remapping>
+        <remapping>camera_info:=camera/info</remapping>
+      </ros>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**仕組み**：
+- `<sensor>`タグはカメラパラメータ（解像度、視野）を定義します。
+- `<plugin>`タグは画像をROS 2トピック（`/my_robot/camera/image`）に公開します。
+
+**カメラ出力を表示**：
+```bash
+# Terminal 1: Launch Gazebo with robot
+ros2 launch my_robot_description gazebo.launch.py
+
+# Terminal 2: View camera feed
+ros2 run rqt_image_view rqt_image_view /my_robot/camera/image
+```
+
+### IMU（慣性計測ユニット）の追加
+
+IMUは線形加速度と角速度を測定します—ヒューマノイドのバランス制御に不可欠です。
+
+```xml
+<gazebo reference="base_link">
+  <sensor name="imu_sensor" type="imu">
+    <always_on>true</always_on>
+    <update_rate>100</update_rate>
+    <imu>
+      <angular_velocity>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </x>
+      </angular_velocity>
+      <linear_acceleration>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.1</stddev>
+          </noise>
+        </x>
+      </linear_acceleration>
+    </imu>
+    <plugin name="imu_controller" filename="libgazebo_ros_imu_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=imu/data</remapping>
+      </ros>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**リアルなノイズモデリング**：`<noise>`タグは実際のセンサーの不完全性をシミュレートするためにガウスノイズを追加します。ノイズがないと、アルゴリズムはシミュレーションでは機能するかもしれませんが、ハードウェアでは失敗する可能性があります。
+
+**IMUデータを表示**：
+```bash
+ros2 topic echo /my_robot/imu/data
+```
+
+## ロボットの制御：力とトルクの適用
+
+ロボットを移動させるには、車輪のジョイントにコマンドを送る必要があります。Gazeboは差動駆動ロボット（私たちの例のような2輪ロボット）用の**`diff_drive_controller`**プラグインを提供します。
+
+これをURDFの`<gazebo>`タグ内に追加します：
+
+```xml
+<gazebo>
+  <plugin name="diff_drive_controller" filename="libgazebo_ros_diff_drive.so">
+    <update_rate>50</update_rate>
+    <left_joint>left_wheel_joint</left_joint>
+    <right_joint>right_wheel_joint</right_joint>
+    <wheel_separation>0.5</wheel_separation>
+    <wheel_diameter>0.2</wheel_diameter>
+    <max_wheel_torque>20</max_wheel_torque>
+    <command_topic>cmd_vel</command_topic>
+    <publish_odom>true</publish_odom>
+    <publish_odom_tf>true</publish_odom_tf>
+    <odometry_topic>odom</odometry_topic>
+    <odometry_frame>odom</odometry_frame>
+    <robot_base_frame>base_link</robot_base_frame>
+  </plugin>
+</gazebo>
+```
+
+**仕組み**：
+- `/cmd_vel`（geometry_msgs/Twist）にサブスクライブ：線形および角速度コマンド。
+- キネマティクスに基づいて必要な車輪トルクを計算します。
+- オドメトリ（`/odom`）とTF変換を公開します。
+
+**ロボットを制御**：
+```bash
+# Move forward at 0.5 m/s
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.5}, angular: {z: 0.0}}"
+
+# Rotate in place
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.0}, angular: {z: 0.5}}"
+```
+
+## ハンズオン演習：モバイルロボットの構築とテスト
+
+**目的**：カメラとIMUを備えた2輪モバイルロボットを作成し、Gazeboでspawnし、RVizでセンサーデータを可視化します。
+
+### ステップ1：URDFの作成
+
+前のセクションの完全なURDF（base_link、車輪、カメラ、IMU、diff_driveプラグイン）を使用します。`~/ros2_ws/src/my_robot_description/urdf/mobile_robot.urdf`として保存します。
+
+### ステップ2：カスタムGazebo Worldの作成
+
+`my_robot_description/worlds/simple_world.world`を作成します：
+
+```xml
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="default">
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Add some obstacles -->
+    <model name="box1">
+      <pose>2 0 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>1 1 1</size></box>
+          </geometry>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box><size>1 1 1</size></box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+  </world>
+</sdf>
+```
+
+このworldを使用するようにlaunchファイルを更新します：
+```python
+gazebo = IncludeLaunchDescription(
+    PythonLaunchDescriptionSource(
+        os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
+    ),
+    launch_arguments={'world': os.path.join(pkg_my_robot, 'worlds', 'simple_world.world')}.items()
+)
+```
+
+### ステップ3：すべてを起動
+
+```bash
+# Terminal 1: Launch Gazebo with robot
+ros2 launch my_robot_description gazebo.launch.py
+
+# Terminal 2: Launch RViz
+rviz2
+
+# In RViz:
+# - Set Fixed Frame to "odom"
+# - Add RobotModel (shows URDF)
+# - Add Camera display (topic: /my_robot/camera/image)
+# - Add Axes display at /my_robot/imu/data
+
+# Terminal 3: Control the robot
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args --remap cmd_vel:=/cmd_vel
+```
+
+**期待される結果**：
+- Gazeboは、ボックス障害物のある世界でロボットを表示します。
+- RVizはロボットモデルとカメラフィードを表示します。
+- キーボードコントロールがロボットを移動させます（前進/左/後退/右のためのi/j/k/lキー）。
+- IMUデータが`/my_robot/imu/data`でストリーミングされます。
+
+### ステップ4：センサーデータの確認
+
+```bash
+# Check camera is publishing
+ros2 topic hz /my_robot/camera/image
+# Expected: ~30 Hz
+
+# Check IMU is publishing
+ros2 topic hz /my_robot/imu/data
+# Expected: ~100 Hz
+
+# Visualize odometry
+ros2 topic echo /odom
+```
+
+## 次のステップ
+
+Gazeboでのロボットシミュレーションのfundamentalsをマスターしました：
+- link、joint、センサーを含むURDFモデルの作成
+- カスタムworldでのロボットのspawn
+- リアルなノイズを伴うカメラとIMUのシミュレーション
+- ROS 2トピックによるロボットの制御
+
+**Chapter 2: Advanced Physics and Sensors**では、次のことをさらに深く掘り下げます：
+- 接触ダイナミクスと摩擦モデリング
+- SLAMとナビゲーションのためのLiDARのシミュレーション
+- 高度なセンサープラグイン（力トルクセンサー、GPS）
+- パフォーマンスの最適化（シミュレーションの遅延の削減）
+- 複雑なコントローラー用のGazebo-ROS 2統合パターン
+
+**チャレンジ演習**：ロボットを変更してキャスターホイール（`<sphere>`ジオメトリを使用）を追加し、`wheel_separation`パラメータを調整します。これが旋回半径と安定性にどのように影響するかを観察してください。

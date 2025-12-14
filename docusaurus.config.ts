@@ -26,9 +26,30 @@ const config: Config = {
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
+  // Add trailing slash configuration for consistent routing
+  trailingSlash: false,
+
+  // i18n configuration for multilingual support
   i18n: {
     defaultLocale: 'en',
-    locales: ['en'], // Urdu can be added later
+    locales: ['en', 'ja', 'ur'],
+    localeConfigs: {
+      en: {
+        label: 'English',
+        direction: 'ltr',
+        htmlLang: 'en-US',
+      },
+      ja: {
+        label: '日本語',
+        direction: 'ltr',
+        htmlLang: 'ja-JP',
+      },
+      ur: {
+        label: 'اردو',
+        direction: 'rtl',
+        htmlLang: 'ur-PK',
+      },
+    },
   },
 
   customFields: {

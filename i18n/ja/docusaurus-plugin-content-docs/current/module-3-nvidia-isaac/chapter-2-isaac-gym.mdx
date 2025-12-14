@@ -1,0 +1,585 @@
+---
+sidebar_position: 3
+title: Chapter 2 - Isaac Gym for RL
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 2: 強化学習のためのIsaac Gym
+
+<ChapterActionsBar chapterTitle="Isaac Gym for RL" />
+
+## はじめに
+
+ヒューマノイドロボットに歩行を教えることは、ロボティクスにおける最も困難な問題の1つです。単に転がる車輪付きロボットとは異なり、ヒューマノイドは、安定性を維持するために、腰、膝、足首、腕など数十の関節を調整しながら、2本の脚で継続的にバランスを取る必要があります。従来の制御アプローチには、手動調整されたPIDコントローラーと逆運動学が必要で、エンジニアが完璧にするのに数か月かかります。それでも、これらのコントローラーは不均一な地形や押されたときにしばしば失敗します。
+
+**強化学習（RL）**は根本的に異なるアプローチを提供します。歩行動作をプログラミングする代わりに、試行錯誤を通じてロボットに**学習**させます。報酬関数を定義し（例：「倒れずに前進する」）、ロボットは数百万のアクションを探索し、どの関節トルクが安定した歩行を生成するかを徐々に発見します。問題は？トレーニングには1,000万〜1億のシミュレーションステップが必要で、CPUで順次実行すると数か月かかります。
+
+**Isaac Gym**の登場です。NVIDIAのGPU加速RLフレームワークは、**単一のGPUで4,000〜16,000の並列シミュレーション**を実行します。CPUで数か月かかるものが、RTX 4090またはA100では**数時間**で完了します。この章では、二足歩行ヒューマノイドをゼロから歩行訓練し、2時間未満の訓練時間で即座に倒れることから安定した移動へと進行するのを見ます。
+
+## なぜIsaac Gym？スピード革命
+
+従来のRLフレームワーク（Gym、PyBullet、MuJoCo）はCPUで実行され、一度に1つの環境をシミュレートします。マルチプロセス並列化でもボトルネックに直面します:
+- **通信オーバーヘッド**: プロセス間で状態/アクションを転送するのが遅い
+- **CPUバウンド物理**: 物理更新はGPUコアを活用できない
+- **限定された並列性**: 1,000プロセスを実行するとほとんどのシステムがクラッシュ
+
+**Isaac GymのGPUネイティブ設計**:
+- **GPU上の物理**: すべての剛体ダイナミクスがCUDAコアで実行
+- **並列環境**: GPUメモリで1,000〜16,000台のロボットを同時にシミュレート
+- **ゼロデータ転送**: 状態、アクション、報酬はすべてGPUで計算—CPUラウンドトリップなし
+- **テンソルインターフェース**: PyTorchテンソルとして状態/アクションに直接アクセス
+
+**パフォーマンス比較**（1,000万ステップの二足歩行訓練）:
+
+| 方法 | ハードウェア | 経過時間 | コスト（クラウド） |
+|--------|----------|-----------|--------------|
+| Single CPU env (Gym) | 16コアCPU | 120時間 | $480 |
+| 100並列CPU (MPI) | 100コアクラスタ | 12時間 | $600 |
+| Isaac Gym (2048 envs) | RTX 4090 | 1.5時間 | $3 |
+| Isaac Gym (4096 envs) | A100 GPU | 45分 | $2 |
+
+**80倍の高速化、200倍のコスト削減。**
+
+## Isaac Gymのインストール
+
+Isaac GymはIsaac Simとは別に配布されています（それらは補完的ですが異なるツールです）。
+
+### 前提条件
+
+- **NVIDIA GPU**: GTX 1660以上（RTX 30シリーズ以上推奨）
+- **CUDA**: 11.3以上（`nvcc --version`で確認）
+- **Ubuntu**: 20.04または22.04
+- **Python**: 3.7-3.10
+- **PyTorch**: 1.11以上でCUDAサポート
+
+### インストール手順
+
+```bash
+# 1. NVIDIAからIsaac Gymをダウンロード
+# 訪問: https://developer.nvidia.com/isaac-gym
+# "Isaac Gym Preview 4"をダウンロード（2024年時点で最新）
+# NVIDIA Developerアカウントが必要（無料）
+
+# 2. アーカイブを展開
+cd ~/Downloads
+tar -xf IsaacGym_Preview_4_Package.tar.gz
+cd isaacgym
+
+# 3. Python仮想環境を作成
+python3 -m venv ~/.isaac-gym-venv
+source ~/.isaac-gym-venv/bin/activate
+
+# 4. Isaac Gym Pythonパッケージをインストール
+cd python
+pip install -e .
+
+# 5. CUDAサポート付きPyTorchをインストール（まだの場合）
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# 6. インストールを確認
+cd ../
+python examples/1080_balls_of_solitude.py
+
+# 1080個のボールがバウンドするウィンドウが表示されるはず（GPU物理デモ）
+```
+
+**トラブルシューティング**:
+- **ImportError: libpython3.8.so**: Python dev librariesをインストール: `sudo apt-get install python3.8-dev`
+- **CUDAミスマッチ**: PyTorchのCUDAバージョンがシステムCUDAと一致することを確認（`nvcc --version`）
+- **起動時にSegmentation fault**: NVIDIAドライバーを515以上に更新
+
+## Isaac Gymのアーキテクチャを理解する
+
+Isaac Gymは従来のRL環境（Gym、Brax、MuJoCo）といくつかの点で異なります。
+
+### 従来のRLフロー（Gym + PyBullet）
+```
+1. env.reset() → 状態を返す（numpy配列）
+2. action = policy(state)
+3. state, reward, done = env.step(action)
+4. [2-3をNステップ繰り返す]
+5. NNトレーニングのためにGPUに遷移をコピー
+```
+
+**ボトルネック**: ステップ1-4はCPUで実行; トレーニングのためにGPUにデータをコピー → 遅い
+
+### Isaac Gymフロー（GPUネイティブ）
+```
+1. env.reset_all() → 状態テンソルを返す（GPU上のtorch.Tensor）
+2. action = policy(state)  # policyはGPUで実行
+3. state, reward, done = env.step(actions)  # GPU上の物理
+4. [2-3をNステップ繰り返す - すべてGPU上]
+5. データ転送なし - すべてGPUメモリ内
+```
+
+**重要な洞察**: 状態、アクション、報酬は**PyTorchテンソル**であり、GPUを離れることはありません。
+
+### ベクトル化API
+
+Isaac Gymは**ベクトル化API**を公開します。1つの環境をステップする代わりに、**すべての環境を同時に**ステップします。
+
+```python
+# 従来（順次）
+for env in envs:
+    state, reward, done = env.step(action)
+
+# Isaac Gym（ベクトル化）
+states, rewards, dones = envs.step(actions)  # 4096環境を一度にステップ
+# states: Tensor(4096, obs_dim)
+# rewards: Tensor(4096,)
+# dones: Tensor(4096,)
+```
+
+これはGPUの動作方法と一致します: 数千のコアにわたるSIMD（単一命令、複数データ）並列処理。
+
+## 最初の環境を構築: Cartpole
+
+ヒューマノイドを訓練する前に、**Cartpole**（移動カート上でポールのバランスを取る）から始めましょう。
+
+### 環境構造
+
+```python
+# cartpole_env.py
+from isaacgym import gymapi
+from isaacgym import gymutil
+import torch
+import numpy as np
+
+class CartpoleEnv:
+    def __init__(self, num_envs=2048, device='cuda:0'):
+        self.num_envs = num_envs
+        self.device = device
+
+        # Gymを初期化
+        self.gym = gymapi.acquire_gym()
+
+        # シミュレーションを作成
+        sim_params = gymapi.SimParams()
+        sim_params.dt = 1.0 / 60.0  # 60 Hz
+        sim_params.substeps = 2
+        sim_params.up_axis = gymapi.UP_AXIS_Z
+        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
+
+        # GPUパイプラインを使用
+        sim_params.use_gpu_pipeline = True
+        sim_params.physx.use_gpu = True
+
+        self.sim = self.gym.create_sim(0, 0, gymapi.SIM_PHYSX, sim_params)
+
+        # アセットをロード
+        self._create_envs()
+
+        # レンダリングの準備
+        self.gym.prepare_sim(self.sim)
+
+        # 観測とアクション次元
+        self.num_obs = 4  # [cart_pos, cart_vel, pole_angle, pole_angular_vel]
+        self.num_acts = 1  # カートに加える力
+
+        # バッファ（GPUテンソル）
+        self.obs_buf = torch.zeros((self.num_envs, self.num_obs), device=self.device)
+        self.reward_buf = torch.zeros(self.num_envs, device=self.device)
+        self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
+
+    def _create_envs(self):
+        # アセットを定義（カート + ポール）
+        asset_root = "assets"
+        asset_file = "cartpole.urdf"
+
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = False
+        cartpole_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+
+        # 環境を作成
+        spacing = 2.0
+        env_lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        env_upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        self.envs = []
+        for i in range(self.num_envs):
+            env = self.gym.create_env(self.sim, env_lower, env_upper, int(np.sqrt(self.num_envs)))
+            cartpole_handle = self.gym.create_actor(env, cartpole_asset, gymapi.Transform(), "cartpole", i, 1, 0)
+            self.envs.append(env)
+
+    def reset(self):
+        # すべての環境をリセット
+        self.obs_buf[:] = 0
+        self.reward_buf[:] = 0
+        self.reset_buf[:] = 0
+        return self.obs_buf
+
+    def step(self, actions):
+        # アクションを適用（カートへの力）
+        forces = actions * 10.0  # アクションをスケール
+        for i, env in enumerate(self.envs):
+            self.gym.apply_actor_dof_forces(env, 0, forces[i].cpu().numpy())
+
+        # 物理をステップ
+        self.gym.simulate(self.sim)
+        self.gym.fetch_results(self.sim, True)
+
+        # 観測と報酬を計算
+        self._compute_observations()
+        self._compute_rewards()
+
+        return self.obs_buf, self.reward_buf, self.reset_buf
+
+    def _compute_observations(self):
+        # シミュレーションから状態を読み取る（カート位置、ポール角度など）
+        # 明確化のために簡略化
+        dof_states = self.gym.acquire_dof_state_tensor(self.sim)
+        self.obs_buf[:, 0] = dof_states[:, 0]  # カート位置
+        self.obs_buf[:, 1] = dof_states[:, 1]  # カート速度
+        # ... (ポール角度と角速度を抽出)
+
+    def _compute_rewards(self):
+        # 報酬 = 生存時間 - 倒れるペナルティ
+        pole_angle = self.obs_buf[:, 2]
+        self.reward_buf = 1.0 - torch.abs(pole_angle) / np.pi
+
+        # ポールが倒れたらリセット（|角度| > 45度）
+        self.reset_buf = torch.where(torch.abs(pole_angle) > 0.785, 1, 0)
+```
+
+### PPOでトレーニング
+
+```python
+# train_cartpole.py
+import torch
+import torch.nn as nn
+from torch.distributions import Normal
+
+# シンプルなポリシーネットワーク
+class Policy(nn.Module):
+    def __init__(self, obs_dim, act_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(obs_dim, 64), nn.ReLU(),
+            nn.Linear(64, 64), nn.ReLU(),
+            nn.Linear(64, act_dim)
+        )
+
+    def forward(self, obs):
+        return torch.tanh(self.net(obs))
+
+# 環境とポリシーを初期化
+env = CartpoleEnv(num_envs=4096)
+policy = Policy(env.num_obs, env.num_acts).cuda()
+optimizer = torch.optim.Adam(policy.parameters(), lr=3e-4)
+
+# トレーニングループ
+obs = env.reset()
+for step in range(10000):
+    # ロールアウトを収集
+    actions = policy(obs)
+    obs, rewards, dones = env.step(actions)
+
+    # ポリシー勾配損失を計算（簡略化されたPPO）
+    loss = -rewards.mean()  # 報酬を最大化
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    if step % 100 == 0:
+        print(f"Step {step}, Avg Reward: {rewards.mean().item():.2f}")
+```
+
+**結果**: Cartpoleは約1,000ステップ（RTX 4090で30秒）でバランスを学習します。
+
+## ヒューマノイドに歩行を訓練
+
+本当の挑戦: AntまたはHumanoidアセットを使用して**二足歩行ヒューマノイド**を訓練します。
+
+### ステップ1: Humanoid環境をロード
+
+Isaac Gymには事前構築された`Humanoid`環境が含まれています:
+
+```python
+from isaacgymenvs.tasks.humanoid import Humanoid
+from isaacgymenvs.utils.rlgames_utils import RLGPUEnv
+
+# 4096並列ヒューマノイド環境を作成
+envs = RLGPUEnv(num_envs=4096, task="Humanoid")
+
+# 観測空間: 108次元（関節角度、速度、方向）
+# アクション空間: 21次元（21自由度のトルク）
+```
+
+### ステップ2: 報酬関数を定義
+
+報酬関数はロボットが学習する内容を形成します。歩行の場合:
+
+```python
+def compute_humanoid_reward(
+    obs_buf,
+    progress_buf,
+    actions,
+    up_weight=0.1,
+    heading_weight=0.5,
+    energy_weight=0.05
+):
+    # 1. 直立を維持（傾きにペナルティ）
+    up_vector = obs_buf[:, 2]  # 胴体の向きのZ成分
+    up_reward = torch.clamp(up_vector, 0, 1)
+
+    # 2. 前進（X方向の速度に報酬）
+    forward_vel = obs_buf[:, 10]
+    heading_reward = forward_vel
+
+    # 3. エネルギー使用を最小化（大きなトルクにペナルティ）
+    energy_penalty = torch.sum(actions ** 2, dim=-1)
+
+    # 組み合わせた報酬
+    reward = (
+        up_weight * up_reward +
+        heading_weight * heading_reward -
+        energy_weight * energy_penalty
+    )
+
+    return reward
+```
+
+**設計上の選択**:
+- **直立ボーナス**: ロボットが這うことを防ぐ（一般的な失敗モード）
+- **前進速度**: 動きを促進
+- **エネルギーペナルティ**: 効率的な歩行を促進（暴れを減らす）
+
+### ステップ3: RL Games（PPOライブラリ）でトレーニング
+
+Isaac GymはRL Gamesと統合されています。高性能なPPO実装:
+
+```bash
+# RL Gamesをインストール
+pip install rl-games
+
+# ヒューマノイドを訓練
+cd isaacgymenvs
+python train.py task=Humanoid headless=True num_envs=4096
+```
+
+**トレーニングパラメータ**（`humanoid.yaml`から）:
+```yaml
+name: Humanoid
+
+env:
+  numEnvs: 4096
+  episodeLength: 1000
+  enableDebugVis: False
+
+train:
+  algorithm: PPO
+  horizon_length: 16
+  minibatch_size: 8192
+  num_epochs: 5
+  learning_rate: 3e-4
+  gamma: 0.99  # 割引率
+  clip_value: 0.2
+```
+
+### ステップ4: トレーニングの進行状況を監視
+
+```python
+# トレーニングメトリクス（TensorBoardにログ）
+# - reward_mean: 平均エピソード報酬
+# - episode_length_mean: 倒れるまでの時間
+# - fps: 1秒あたりのシミュレーションフレーム
+
+# 典型的な学習曲線:
+# 0-100万ステップ: ロボットは即座に倒れる（報酬 ~0）
+# 100万-500万ステップ: 短時間立つことを学習（報酬 ~50）
+# 500万-1,000万ステップ: 最初のよろよろした歩みを踏み出す（報酬 ~200）
+# 1,000万-2,000万ステップ: 安定した歩行が現れる（報酬 ~500以上）
+```
+
+**TensorBoardを起動**:
+```bash
+tensorboard --logdir runs/
+```
+
+`localhost:6006`にナビゲートしてライブトレーニンググラフを表示します。
+
+### ステップ5: トレーニング済みポリシーを評価
+
+```bash
+# チェックポイントをロードして推論を実行
+python train.py task=Humanoid test=True checkpoint=runs/Humanoid_123456/nn/Humanoid.pth
+```
+
+**ロボットがリアルタイムで歩くのを見ましょう！** ビューアで`V`を押してカメラフォローモードを切り替えます。
+
+## Sim-to-Real転送のためのドメインランダム化
+
+完璧なシミュレーションで訓練されたRLポリシーは、**リアリティギャップ**のために実際のロボットでしばしば失敗します。**ドメインランダム化**は、訓練中にポリシーを変動性にさらし、実世界の不確実性に対して堅牢にします。
+
+### ランダム化するもの
+
+```python
+# Isaac Gym環境セットアップで
+def apply_domain_randomization(self):
+    # 1. 物理パラメータをランダム化
+    for env in self.envs:
+        actor = self.gym.get_actor_rigid_body_count(env, 0)
+        for i in range(actor):
+            # 質量をランダム化（±20%）
+            props = self.gym.get_actor_rigid_body_properties(env, 0)
+            props[i].mass *= torch.rand(1).item() * 0.4 + 0.8
+
+            # 摩擦をランダム化（0.5 - 1.5）
+            self.gym.set_actor_rigid_body_properties(env, 0, props)
+
+    # 2. アクチュエータの遅延をランダム化（5-15ms）
+    self.actuator_delay = torch.rand(self.num_envs) * 0.01 + 0.005
+
+    # 3. センサーノイズを追加
+    self.obs_noise_scale = 0.05  # 観測に5%のガウシアンノイズ
+
+    # 4. エピソードごとに地面の摩擦をランダム化
+    self.ground_friction = torch.rand(self.num_envs) * 0.5 + 0.7
+```
+
+### リセット時にランダム化を適用
+
+```python
+def reset(self):
+    self.apply_domain_randomization()
+    # ... リセットロジックの残り
+```
+
+**影響**: ドメインランダム化で訓練されたポリシーは、実際のロボットで**70-90%の成功率**を達成します。ランダム化なしでは**10-30%**です。
+
+## ハンズオン演習: 四足歩行（ANT）を訓練
+
+**目標**: Isaac Gymを使用して4本脚のAntロボットに歩行を訓練します。
+
+### ステップ1: Antトレーニングを起動
+
+```bash
+cd isaacgymenvs
+python train.py task=Ant num_envs=8192 headless=False
+```
+
+**観察**: 8,192匹のアリがグリッドに表示されます。`Play`を押して学習する様子を見ます。
+
+### ステップ2: 報酬関数を変更
+
+`isaacgymenvs/tasks/ant.py`を編集:
+
+```python
+# 元の報酬: 前進速度のみ
+reward = forward_vel
+
+# 変更された報酬: 安定性ボーナスを追加
+def compute_ant_reward(self):
+    forward_vel = self.obs_buf[:, 13]
+    torso_height = self.obs_buf[:, 2]
+
+    # 前進運動に報酬
+    forward_reward = forward_vel
+
+    # 高さを維持するボーナス（這うことを防ぐ）
+    height_bonus = torch.where(torso_height > 0.3, 1.0, 0.0)
+
+    reward = forward_reward + 0.5 * height_bonus
+    return reward
+```
+
+### ステップ3: 結果を比較
+
+2つのバージョンを訓練:
+1. **ベースライン**（元の報酬）: しばしば這うことを学習
+2. **変更版**（高さボーナス付き）: 適切な歩行歩容を学習
+
+**比較するメトリクス**:
+- 1,000万ステップ後の平均報酬
+- 平均エピソード長
+- 質的歩容（ビデオ比較）
+
+### ステップ4: デプロイ用にポリシーをエクスポート
+
+```python
+# 訓練済みポリシーをTorchScriptとしてエクスポート（実際のロボットへのデプロイ用）
+import torch
+
+policy = torch.jit.load("runs/Ant/nn/Ant.pth")
+scripted_policy = torch.jit.script(policy)
+scripted_policy.save("ant_policy.pt")
+
+# NVIDIA Jetson（エッジデバイス）にデプロイ
+# ロボットでポリシーをロード:
+# policy = torch.jit.load("ant_policy.pt")
+# action = policy(observation)
+```
+
+## 高度なトピック
+
+### 1. カリキュラム学習
+
+段階的に難しいタスクを訓練:
+```python
+# 週1: 平らな地面
+# 週2: 小さな凹凸（5cmの高さ）
+# 週3: 階段（10cmのステップ）
+# 週4: 不均一な地形
+
+def update_curriculum(self, progress):
+    if progress < 0.25:
+        self.terrain_difficulty = 0  # 平坦
+    elif progress < 0.5:
+        self.terrain_difficulty = 1  # 凹凸
+    elif progress < 0.75:
+        self.terrain_difficulty = 2  # 階段
+    else:
+        self.terrain_difficulty = 3  # ランダム
+```
+
+### 2. 非対称Actor-Critic
+
+訓練中に**特権情報**を使用（グラウンドトゥルース状態）しますが、センサー観測のみでデプロイ:
+
+```python
+# Criticはグラウンドトゥルースを見る（訓練にのみ使用）
+critic_obs = torch.cat([
+    robot_state,          # 関節角度、速度
+    terrain_heightmap,    # 完璧な地形知識（特権）
+    external_forces       # シミュレートされた風（特権）
+], dim=-1)
+
+# Actorはセンサーデータのみを見る（デプロイに使用）
+actor_obs = torch.cat([
+    robot_state,
+    noisy_imu_data,      # ノイズのある現実的なIMU
+    noisy_joint_encoders # ドリフトのあるエンコーダ読み取り
+], dim=-1)
+```
+
+**利点**: Criticはより良い価値推定を学習（訓練が速い）し、Actorは堅牢なセンサーベースのポリシーを学習します。
+
+### 3. マルチタスク学習
+
+複数のスキルのために単一のポリシーを訓練:
+```python
+# タスクID: 0=歩行、1=走行、2=ジャンプ、3=しゃがむ
+task_encoding = torch.nn.functional.one_hot(task_id, num_classes=4)
+policy_input = torch.cat([observation, task_encoding], dim=-1)
+```
+
+## 次のステップ
+
+これでIsaac GymでGPU加速強化学習をマスターしました:
+- 大規模並列シミュレーション（4,000以上の環境）
+- 二足歩行と四足歩行の訓練
+- 堅牢なsim-to-real転送のためのドメインランダム化
+- エッジデバイス（Jetson）へのポリシーのデプロイ
+
+**Chapter 3: 認識のためのIsaac ROS**（近日公開）では、訓練されたRLポリシーをリアルタイムビジョンシステムと統合します。NVIDIA Jetsonハードウェアでオブジェクト検出、セマンティックセグメンテーション、visual SLAMを実行し、完全な自律スタックを完成させます: 認識 → 計画 → 制御。
+
+**チャレンジ演習**:
+1. **異なる報酬関数**でHumanoidを訓練（例：後方歩行、サイドステップ、走行）
+2. **極端なドメインランダム化**を適用（±50%の質量変動、±80%の摩擦）
+3. 訓練中に見たことのない地形でポリシーの**堅牢性**を評価
+4. **サンプル効率**を比較: 最大性能の80%に達するまでのタイムステップは？
+   - ベースラインPPO
+   - PPO + ドメインランダム化
+   - PPO + カリキュラム学習
+5. **実際のロボットにエクスポート**: ポリシーを物理プラットフォームにデプロイし（利用可能な場合）、sim-to-real転送成功率を測定

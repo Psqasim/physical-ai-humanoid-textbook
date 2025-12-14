@@ -1,0 +1,707 @@
+---
+sidebar_position: 3
+title: Chapter 2 - Building Your Own VLA
+---
+
+import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
+
+# Chapter 2: Building and Deploying Your Own VLA
+
+<ChapterActionsBar chapterTitle="Building Your Own VLA" />
+
+## Introduction
+
+Pre-trained VLA models like RT-2 and OpenVLA are powerful, but they're trained on general manipulation tasks (pick, place, push). What if you need a humanoid to perform specialized tasks—surgical assistance, warehouse inventory scanning, or home cooking? You'll need to **fine-tune** or **train from scratch** a VLA tailored to your domain.
+
+In this chapter, you'll build a complete VLA training pipeline: collect demonstration data, design the model architecture, train using behavior cloning, integrate with ROS 2 for real robot deployment, and handle edge cases through active learning. By the end, you'll have a custom VLA that responds to task-specific language commands with high accuracy.
+
+## The VLA Training Pipeline
+
+Training a VLA involves four phases:
+
+```
+1. Data Collection → 2. Model Training → 3. Simulation Testing → 4. Real Robot Deployment
+```
+
+### Phase 1: Data Collection
+
+**Goal**: Gather pairs of (image, instruction, action) for supervised learning.
+
+**Methods**:
+
+1. **Teleoperation**: Human controls robot while wearing VR headset or using joystick
+   - Collect RGB images, language instructions, and executed actions
+   - Pros: High-quality demonstrations
+   - Cons: Expensive, requires hardware setup
+
+2. **Kinesthetic Teaching**: Physically guide robot's arm through desired motions
+   - Record joint trajectories as demonstrations
+   - Pros: Intuitive for humans
+   - Cons: Only works for compliant robots
+
+3. **Simulation**: Generate synthetic data in Isaac Sim or Gazebo
+   - Randomize scenes, object poses, lighting
+   - Pros: Scalable (millions of samples), free
+   - Cons: Sim-to-real gap
+
+**Data Format** (HDF5 example):
+```python
+# Each episode contains:
+{
+    'observations': {
+        'image': np.array([T, 224, 224, 3]),  # T timesteps
+        'proprio': np.array([T, 7])            # Joint angles
+    },
+    'actions': np.array([T, 7]),              # Predicted actions
+    'language': "pick up the red block"       # Instruction (string)
+}
+```
+
+### Phase 2: Model Training
+
+**Objective**: Learn a policy π(a | image, instruction) using imitation learning (behavior cloning).
+
+**Loss Function**:
+```python
+# Mean Squared Error (for continuous actions)
+loss = MSE(predicted_actions, demo_actions)
+
+# Or Cross-Entropy (for discretized actions)
+loss = CrossEntropy(predicted_action_logits, demo_action_bins)
+```
+
+### Phase 3: Simulation Testing
+
+**Objective**: Validate VLA in Isaac Sim before risking real hardware.
+
+- Run 100+ test episodes with diverse instructions
+- Measure success rate, action accuracy, and failure modes
+
+### Phase 4: Real Robot Deployment
+
+**Objective**: Deploy to physical robot with safety constraints.
+
+- Add collision detection (halt if predicted action causes collision)
+- Implement emergency stop (human can interrupt at any time)
+- Log failures for retraining
+
+## Collecting Training Data: Teleoperation Demo
+
+Let's collect 100 demonstrations of "pick and place" tasks using teleoperation.
+
+### Step 1: Set Up Teleoperation Interface
+
+```python
+# teleoperation.py
+import pygame
+import numpy as np
+
+class TeleopInterface:
+    def __init__(self):
+        pygame.init()
+        self.joystick = pygame.joystick.Joystick(0)
+        self.joystick.init()
+
+    def get_action(self):
+        # Read joystick inputs
+        pygame.event.pump()
+
+        # Map joystick axes to robot actions
+        # Axis 0, 1: X-Y translation
+        # Axis 2, 3: Z translation + rotation
+        # Button 0: Gripper close
+        # Button 1: Gripper open
+
+        action = np.zeros(7)
+        action[0] = self.joystick.get_axis(0)  # X
+        action[1] = self.joystick.get_axis(1)  # Y
+        action[2] = self.joystick.get_axis(2)  # Z
+        action[3] = self.joystick.get_axis(3)  # Roll
+        action[4] = 0.0  # Pitch (fixed)
+        action[5] = 0.0  # Yaw (fixed)
+        action[6] = 1.0 if self.joystick.get_button(0) else 0.0  # Gripper
+
+        return action
+```
+
+### Step 2: Collect Demonstrations in Isaac Sim
+
+```python
+# collect_demos.py
+from isaacgym import gymapi
+import h5py
+import numpy as np
+
+# Initialize Isaac Sim
+gym = gymapi.acquire_gym()
+sim = gym.create_sim(0, 0, gymapi.SIM_PHYSX, gymapi.SimParams())
+
+# Load robot and objects
+# ... (similar to Chapter 1 setup)
+
+# Teleoperation interface
+teleop = TeleopInterface()
+
+# Storage for demonstrations
+episodes = []
+
+print("Starting data collection. Press 'R' to record, 'S' to save episode, 'Q' to quit.")
+
+for episode_idx in range(100):
+    # Reset environment
+    gym.reset_env(sim)
+
+    # Instruction (randomly sample or prompt user)
+    instruction = input(f"Episode {episode_idx + 1}: Enter instruction (e.g., 'pick up red block'): ")
+
+    # Recording buffers
+    images, actions, proprios = [], [], []
+
+    recording = False
+    for step in range(500):
+        # Capture camera image
+        camera_image = gym.get_camera_image(sim, env, camera_handle, gymapi.IMAGE_COLOR)
+        image = np.reshape(camera_image, (224, 224, 4))[:, :, :3]
+
+        # Get robot proprioception (joint angles)
+        dof_states = gym.get_actor_dof_states(env, robot_handle, gymapi.STATE_ALL)
+        proprio = dof_states['pos']  # Joint positions
+
+        # Get human action from teleop
+        action = teleop.get_action()
+
+        # Check for recording toggle
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_r]:
+            recording = True
+            print("Recording started")
+        if keys[pygame.K_s]:
+            recording = False
+            print(f"Episode {episode_idx + 1} saved ({len(images)} frames)")
+            break
+        if keys[pygame.K_q]:
+            print("Quitting")
+            exit()
+
+        # If recording, store data
+        if recording:
+            images.append(image)
+            actions.append(action)
+            proprios.append(proprio)
+
+        # Apply action to robot
+        gym.set_actor_dof_position_targets(env, robot_handle, action[:7])
+        gym.simulate(sim)
+        gym.fetch_results(sim, True)
+
+    # Save episode
+    if len(images) > 0:
+        episodes.append({
+            'observations': {
+                'image': np.array(images),
+                'proprio': np.array(proprios)
+            },
+            'actions': np.array(actions),
+            'language': instruction
+        })
+
+# Save all episodes to HDF5
+with h5py.File('demonstrations.hdf5', 'w') as f:
+    for i, ep in enumerate(episodes):
+        grp = f.create_group(f'episode_{i}')
+        grp.create_dataset('images', data=ep['observations']['image'])
+        grp.create_dataset('proprios', data=ep['observations']['proprio'])
+        grp.create_dataset('actions', data=ep['actions'])
+        grp.attrs['instruction'] = ep['language']
+
+print(f"Collected {len(episodes)} demonstrations. Saved to 'demonstrations.hdf5'")
+```
+
+**Result**: `demonstrations.hdf5` contains 100 episodes with images, actions, and instructions.
+
+## Training a VLA with Behavior Cloning
+
+**Behavior Cloning**: Learn to mimic expert demonstrations by minimizing action prediction error.
+
+### Step 1: Define Dataset
+
+```python
+# dataset.py
+import torch
+from torch.utils.data import Dataset
+import h5py
+import numpy as np
+from PIL import Image
+from transformers import CLIPProcessor, T5Tokenizer
+
+class VLADataset(Dataset):
+    def __init__(self, hdf5_path, tokenizer):
+        self.data = h5py.File(hdf5_path, 'r')
+        self.episodes = list(self.data.keys())
+        self.tokenizer = tokenizer
+
+        # Pre-compute total frames across all episodes
+        self.frame_indices = []
+        for ep_key in self.episodes:
+            num_frames = len(self.data[ep_key]['images'])
+            for frame_idx in range(num_frames):
+                self.frame_indices.append((ep_key, frame_idx))
+
+    def __len__(self):
+        return len(self.frame_indices)
+
+    def __getitem__(self, idx):
+        ep_key, frame_idx = self.frame_indices[idx]
+        episode = self.data[ep_key]
+
+        # Load image
+        image = Image.fromarray(episode['images'][frame_idx].astype(np.uint8))
+
+        # Load action
+        action = torch.tensor(episode['actions'][frame_idx], dtype=torch.float32)
+
+        # Load instruction
+        instruction = episode.attrs['instruction']
+        instruction_ids = self.tokenizer(instruction, return_tensors='pt', padding='max_length', max_length=32).input_ids.squeeze(0)
+
+        return {
+            'image': image,
+            'instruction': instruction_ids,
+            'action': action
+        }
+```
+
+### Step 2: Define VLA Model (from Chapter 1)
+
+```python
+# model.py (using architecture from Chapter 1)
+import torch.nn as nn
+from transformers import ViTModel, T5EncoderModel
+
+class VLA(nn.Module):
+    def __init__(self, action_dim=7):
+        super().__init__()
+        # Vision encoder (CLIP or ViT)
+        self.vision_encoder = ViTModel.from_pretrained('google/vit-base-patch16-224')
+
+        # Language encoder (T5)
+        self.language_encoder = T5EncoderModel.from_pretrained('t5-base')
+
+        # Freeze encoders (optional: only train action head)
+        for param in self.vision_encoder.parameters():
+            param.requires_grad = False
+        for param in self.language_encoder.parameters():
+            param.requires_grad = False
+
+        # Action head
+        self.action_head = nn.Sequential(
+            nn.Linear(768, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_dim)
+        )
+
+    def forward(self, pixel_values, input_ids):
+        # Encode vision
+        vision_outputs = self.vision_encoder(pixel_values=pixel_values)
+        vision_features = vision_outputs.last_hidden_state[:, 0, :]  # CLS token
+
+        # Encode language
+        lang_outputs = self.language_encoder(input_ids=input_ids)
+        lang_features = lang_outputs.last_hidden_state[:, 0, :]  # CLS token
+
+        # Concatenate
+        fused = torch.cat([vision_features, lang_features], dim=1)  # [B, 1536]
+
+        # Predict actions
+        actions = self.action_head(fused)  # [B, action_dim]
+        return actions
+```
+
+### Step 3: Training Loop
+
+```python
+# train.py
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from transformers import T5Tokenizer, ViTFeatureExtractor
+from tqdm import tqdm
+
+# Load dataset
+tokenizer = T5Tokenizer.from_pretrained('t5-base')
+feature_extractor = ViTFeatureExtractor.from_pretrained('google/vit-base-patch16-224')
+
+dataset = VLADataset('demonstrations.hdf5', tokenizer)
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
+
+# Initialize model
+model = VLA(action_dim=7).cuda()
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+criterion = nn.MSELoss()
+
+# Training loop
+num_epochs = 50
+for epoch in range(num_epochs):
+    model.train()
+    total_loss = 0
+
+    for batch in tqdm(dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}"):
+        images = batch['image']
+        instructions = batch['instruction'].cuda()
+        actions_gt = batch['action'].cuda()
+
+        # Preprocess images
+        pixel_values = feature_extractor(images=images, return_tensors='pt')['pixel_values'].cuda()
+
+        # Forward pass
+        actions_pred = model(pixel_values, instructions)
+
+        # Compute loss
+        loss = criterion(actions_pred, actions_gt)
+
+        # Backward pass
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    avg_loss = total_loss / len(dataloader)
+    print(f"Epoch {epoch + 1}, Loss: {avg_loss:.4f}")
+
+    # Save checkpoint
+    if (epoch + 1) % 10 == 0:
+        torch.save(model.state_dict(), f'vla_checkpoint_epoch_{epoch + 1}.pth')
+
+print("Training complete!")
+```
+
+**Training Time**: On an RTX 4090, expect ~10 minutes per epoch for 10k samples.
+
+## Deploying VLA to ROS 2
+
+Once trained, integrate the VLA with ROS 2 for real robot control.
+
+### Step 1: Create ROS 2 VLA Node
+
+```python
+# vla_controller.py
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+from geometry_msgs.msg import Pose
+from cv_bridge import CvBridge
+import torch
+from PIL import Image as PILImage
+from model import VLA
+
+class VLAController(Node):
+    def __init__(self):
+        super().__init__('vla_controller')
+
+        # Load trained VLA
+        self.model = VLA(action_dim=7).cuda()
+        self.model.load_state_dict(torch.load('vla_checkpoint_epoch_50.pth'))
+        self.model.eval()
+
+        # ROS 2 subscribers
+        self.image_sub = self.create_subscription(Image, '/camera/image_raw', self.image_callback, 10)
+        self.instruction_sub = self.create_subscription(String, '/instruction', self.instruction_callback, 10)
+
+        # ROS 2 publisher (robot commands)
+        self.action_pub = self.create_publisher(Pose, '/robot/target_pose', 10)
+
+        self.bridge = CvBridge()
+        self.latest_image = None
+        self.latest_instruction = None
+
+        self.get_logger().info("VLA Controller initialized")
+
+    def image_callback(self, msg):
+        # Convert ROS Image to PIL Image
+        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
+        self.latest_image = PILImage.fromarray(cv_image).resize((224, 224))
+
+    def instruction_callback(self, msg):
+        self.latest_instruction = msg.data
+        self.get_logger().info(f"Received instruction: {self.latest_instruction}")
+
+        # If we have both image and instruction, predict action
+        if self.latest_image is not None:
+            self.predict_and_publish()
+
+    def predict_and_publish(self):
+        # Preprocess inputs
+        pixel_values = feature_extractor(images=self.latest_image, return_tensors='pt')['pixel_values'].cuda()
+        instruction_ids = tokenizer(self.latest_instruction, return_tensors='pt').input_ids.cuda()
+
+        # Predict action
+        with torch.no_grad():
+            action = self.model(pixel_values, instruction_ids).cpu().numpy()[0]
+
+        # Publish action as Pose message
+        pose_msg = Pose()
+        pose_msg.position.x = action[0]
+        pose_msg.position.y = action[1]
+        pose_msg.position.z = action[2]
+        # ... (set orientation and gripper)
+
+        self.action_pub.publish(pose_msg)
+        self.get_logger().info(f"Published action: {action}")
+
+def main():
+    rclpy.init()
+    node = VLAController()
+    rclpy.spin(node)
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+### Step 2: Launch ROS 2 System
+
+```bash
+# Terminal 1: Launch robot control stack
+ros2 launch my_robot_bringup robot.launch.py
+
+# Terminal 2: Launch camera node
+ros2 run usb_cam usb_cam_node
+
+# Terminal 3: Launch VLA controller
+python3 vla_controller.py
+
+# Terminal 4: Send instruction
+ros2 topic pub /instruction std_msgs/msg/String "data: 'pick up the red block'" --once
+```
+
+**Result**: Robot executes VLA-predicted action in response to language command.
+
+## Advanced Techniques
+
+### 1. Chain-of-Thought Prompting (Multi-Step Tasks)
+
+For complex instructions like "prepare a sandwich," decompose into sub-tasks:
+
+```python
+# Use LLM to generate sub-tasks
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
+
+llm = GPT2LMHeadModel.from_pretrained('gpt2')
+tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+
+prompt = "Decompose this task into steps: 'prepare a sandwich'"
+input_ids = tokenizer(prompt, return_tensors='pt').input_ids
+
+# Generate sub-tasks
+output = llm.generate(input_ids, max_length=100)
+subtasks = tokenizer.decode(output[0])
+
+# Example output:
+# "1. Get bread from pantry
+#  2. Get peanut butter and jelly
+#  3. Spread peanut butter on one slice
+#  4. Spread jelly on another slice
+#  5. Combine slices"
+
+# Execute each subtask sequentially with VLA
+for subtask in subtasks.split('\n'):
+    action = vla_model.predict(image, instruction=subtask)
+    robot.execute(action)
+```
+
+### 2. Active Learning (Query Human When Uncertain)
+
+```python
+# Measure prediction confidence
+def predict_with_confidence(image, instruction):
+    # Run forward pass multiple times with dropout (Monte Carlo Dropout)
+    model.train()  # Enable dropout
+    predictions = []
+
+    for _ in range(10):
+        with torch.no_grad():
+            action = model(image, instruction)
+            predictions.append(action)
+
+    predictions = torch.stack(predictions)
+    mean_action = predictions.mean(dim=0)
+    std_action = predictions.std(dim=0)
+
+    # High std = low confidence
+    confidence = 1 / (1 + std_action.mean())
+
+    return mean_action, confidence
+
+# In control loop
+action, confidence = predict_with_confidence(image, instruction)
+if confidence < 0.5:
+    # Ask human for help
+    print("Low confidence. Please demonstrate correct action.")
+    teleoperated_action = get_human_demo()
+    # Add to training set for retraining
+    save_demo(image, instruction, teleoperated_action)
+else:
+    robot.execute(action)
+```
+
+### 3. Sim-to-Real Transfer with Visual Domain Randomization
+
+```python
+# During training in Isaac Sim, randomize visual appearance
+import random
+
+def randomize_scene(gym, env):
+    # Randomize lighting intensity
+    light_intensity = random.uniform(500, 2000)
+    gym.set_light_parameters(env, 'default_light', intensity=light_intensity)
+
+    # Randomize object textures
+    for obj in objects:
+        random_texture = random.choice(texture_library)
+        gym.set_actor_texture(env, obj, random_texture)
+
+    # Randomize camera noise
+    camera_noise_std = random.uniform(0.0, 0.05)
+    gym.set_camera_noise(env, camera_handle, std=camera_noise_std)
+
+# Apply randomization each episode during training
+for episode in range(num_train_episodes):
+    randomize_scene(gym, env)
+    # ... collect data and train
+```
+
+**Impact**: Models trained with domain randomization achieve 80%+ success on real robots vs. 30% without randomization.
+
+## Hands-On Exercise: Fine-Tune VLA for Custom Task
+
+**Objective**: Fine-tune OpenVLA to perform a new task: "stack blocks in order of size."
+
+### Step 1: Collect 50 Demonstrations
+
+```bash
+# Run teleoperation script
+python collect_demos.py --task "stack blocks in order of size" --num_episodes 50
+```
+
+### Step 2: Fine-Tune OpenVLA
+
+```python
+# fine_tune.py
+from openvla import OpenVLA
+
+# Load pre-trained model
+model = OpenVLA.from_pretrained('openvla/openvla-7b')
+
+# Freeze vision and language encoders, train only action head
+for param in model.vision_encoder.parameters():
+    param.requires_grad = False
+for param in model.language_encoder.parameters():
+    param.requires_grad = False
+
+# Load custom dataset
+dataset = VLADataset('stacking_demos.hdf5', tokenizer)
+dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
+
+# Fine-tune for 10 epochs
+optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5)
+criterion = nn.MSELoss()
+
+for epoch in range(10):
+    for batch in dataloader:
+        # ... (same training loop as before)
+        pass
+
+torch.save(model.state_dict(), 'openvla_finetuned_stacking.pth')
+```
+
+### Step 3: Evaluate in Simulation
+
+```python
+# Test on 20 unseen block configurations
+test_episodes = generate_random_block_configs(num=20)
+success_count = 0
+
+for episode in test_episodes:
+    # Run VLA
+    success = evaluate_vla(model, episode, instruction="stack blocks in order of size")
+    if success:
+        success_count += 1
+
+print(f"Fine-tuned VLA success rate: {success_count}/20 ({success_count/20*100}%)")
+```
+
+### Step 4: Deploy to Real Robot
+
+```python
+# ros2_vla_node.py (as shown earlier)
+# Load fine-tuned checkpoint instead of base model
+self.model.load_state_dict(torch.load('openvla_finetuned_stacking.pth'))
+```
+
+## Debugging and Common Pitfalls
+
+### 1. Overfitting to Demonstrations
+
+**Symptom**: 100% success in simulation, 0% on real robot.
+
+**Cause**: Model memorized demonstration trajectories instead of learning generalizable policy.
+
+**Solution**:
+- Collect diverse demonstrations (different object poses, lighting, backgrounds)
+- Add data augmentation (random crops, color jitter)
+- Use domain randomization during training
+
+### 2. Action Distribution Mismatch
+
+**Symptom**: Predicted actions are always near zero or clipped.
+
+**Cause**: Action normalization mismatch between training and inference.
+
+**Solution**:
+```python
+# During training, normalize actions to [-1, 1]
+action_mean = dataset_actions.mean()
+action_std = dataset_actions.std()
+normalized_actions = (actions - action_mean) / action_std
+
+# During inference, denormalize
+predicted_action = model(image, instruction)
+denormalized_action = predicted_action * action_std + action_mean
+```
+
+### 3. Language Encoder Not Grounding
+
+**Symptom**: Model ignores instruction, always performs same action.
+
+**Cause**: Language encoder weights frozen or learning rate too low.
+
+**Solution**:
+- Fine-tune language encoder (unfreezing last 2 layers)
+- Increase language encoder learning rate (10x higher than vision encoder)
+
+## Next Steps
+
+You've now mastered the complete VLA development pipeline:
+- Collecting high-quality demonstration data
+- Training VLA models with behavior cloning
+- Deploying to ROS 2 and real robots
+- Advanced techniques (chain-of-thought, active learning, sim-to-real)
+
+**Future Directions**:
+- **Reinforcement Learning**: Instead of imitation, let VLA learn from trial-and-error with RL
+- **Multimodal Inputs**: Add tactile sensors (force-torque) and audio (voice commands)
+- **Foundation Models**: Scale to 100B parameters for emergent reasoning (like GPT-4 for robots)
+
+The journey from language to action is now complete. You're ready to build the next generation of intelligent humanoid robots.
+
+**Final Challenge**:
+Build an end-to-end system that:
+1. Uses speech recognition to convert voice → text
+2. Feeds text to VLA for action prediction
+3. Executes action on real robot
+4. Uses active learning to improve from failures
+5. Logs all interactions for continual learning
+
+This is the foundation of commercial humanoid platforms like Tesla Optimus and Figure 01. The future is now.

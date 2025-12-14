@@ -9,15 +9,538 @@ import ChapterActionsBar from '@site/src/components/learning/ChapterActionsBar';
 
 <ChapterActionsBar chapterTitle="Simulation Basics" />
 
-Learn the fundamentals of robot simulation, including setting up environments, spawning robots, and running physics-based tests.
+## Introduction
 
-## Topics Covered
+Imagine you're developing a humanoid robot designed to navigate hospital corridors, deliver medications, and interact with patients. Before deploying this robot in a real hospital—where a collision could injure someone or a navigation failure could disrupt critical operations—you need to answer questions like: Can the robot safely navigate narrow hallways? Does its vision system work under fluorescent lighting? What happens if a patient unexpectedly crosses its path?
 
-- Why simulation matters for robotics development
-- Setting up Gazebo Classic and Gazebo Fortress
-- Creating URDF models for your robot
-- Simulating sensors (cameras, LiDAR, IMU)
+**Robot simulation** provides a safe, cost-effective sandbox to answer these questions. Instead of risking a $500,000 prototype, you test behaviors in a virtual world where failures are cheap and iteration is fast. Simulation is not just a development tool—it's a **validation layer** that sits between algorithm design and real-world deployment.
 
-## Hands-On Exercise
+In this chapter, you'll master **Gazebo**, the industry-standard robotics simulator. You'll learn how Gazebo models physics (gravity, collisions, friction), simulates sensors (cameras, LiDAR, IMUs), and integrates with ROS 2 for seamless controller testing. By the end, you'll spawn a mobile robot in a simulated environment, control it with ROS 2 commands, and visualize its sensor data in RViz—skills that directly translate to testing humanoid robots.
 
-By the end of this chapter, you'll simulate a mobile robot in Gazebo and visualize its sensor data in RViz.
+## Why Simulation Matters: The Reality Gap
+
+Simulation is powerful, but it's not perfect. The **reality gap** refers to the difference between simulated and real-world behavior. For example:
+
+- **Physics Approximations**: Gazebo models friction as a constant coefficient, but real-world friction varies with surface texture, humidity, and wear.
+- **Sensor Noise**: A simulated camera produces perfect images unless you explicitly add noise. Real cameras suffer from motion blur, lens distortion, and dynamic range limitations.
+- **Actuator Dynamics**: Simulated motors respond instantaneously to commands. Real motors have lag, backlash, and thermal limits.
+
+Despite these gaps, simulation remains invaluable because:
+
+1. **Rapid Prototyping**: Test 100 algorithm variations in a day vs. weeks of hardware testing.
+2. **Edge Case Coverage**: Simulate rare scenarios (sensor failures, extreme terrain) that are hard to reproduce physically.
+3. **Parallelization**: Run 1,000 simulations concurrently in the cloud to train reinforcement learning policies.
+
+**Best Practice**: Use simulation for **algorithm validation** (does my path planner avoid obstacles?), then perform **hardware validation** to measure real-world performance and refine models.
+
+## Setting Up Gazebo
+
+Gazebo comes in two major versions:
+- **Gazebo Classic** (versions 9-11): Stable, widely used, but deprecated.
+- **Gazebo Fortress/Harmonic** (new architecture): Modern, modular, better performance.
+
+For this course, we'll use **Gazebo Fortress** (compatible with ROS 2 Humble). If you're on ROS 2 Foxy, use Gazebo Classic 11.
+
+### Installation (Ubuntu 22.04 + ROS 2 Humble)
+
+```bash
+# Install Gazebo Fortress
+sudo apt-get update
+sudo apt-get install gazebo
+
+# Install ROS 2 Gazebo integration
+sudo apt-get install ros-humble-gazebo-ros-pkgs
+
+# Verify installation
+gazebo --version
+# Expected output: Gazebo multi-robot simulator, version 11.x or higher
+
+# Test Gazebo GUI
+gazebo
+```
+
+When you run `gazebo`, a window should open showing an empty world with a ground plane and basic lighting. This confirms your installation is working.
+
+**Troubleshooting**:
+- **Missing libgazebo**: Run `sudo apt-get install libgazebo11-dev`
+- **Graphics issues**: Update GPU drivers or run `gazebo --verbose` to check OpenGL compatibility
+
+### Gazebo Architecture Overview
+
+Gazebo consists of two main components:
+
+1. **gzserver** (Physics Server): Runs the physics simulation loop, computes sensor outputs, and publishes data. This is headless and can run on cloud instances without GPUs.
+
+2. **gzclient** (GUI Client): Visualizes the simulation. Connects to `gzserver` over network sockets, allowing remote visualization.
+
+You can run them separately:
+```bash
+# Terminal 1: Start physics server only
+gzserver
+
+# Terminal 2: Start GUI client (connects to running server)
+gzclient
+```
+
+This separation is crucial for cloud-based simulation: run `gzserver` on powerful cloud instances, and `gzclient` on your laptop for visualization.
+
+## Understanding URDF: The Robot Description Format
+
+**URDF (Unified Robot Description Format)** is an XML-based language for describing robot kinematics, dynamics, and visual appearance. Every link (rigid body), joint (connection between links), sensor, and actuator is defined in URDF.
+
+### Anatomy of a Simple URDF
+
+Let's create a minimal two-wheeled mobile robot:
+
+```xml
+<?xml version="1.0"?>
+<robot name="simple_mobile_robot">
+
+  <!-- Base Link (Robot Chassis) -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="0.6 0.4 0.2"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0 0 0.8 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.6 0.4 0.2"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="10.0"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.15" iyz="0" izz="0.2"/>
+    </inertial>
+  </link>
+
+  <!-- Left Wheel Link -->
+  <link name="left_wheel">
+    <visual>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Joint: Base to Left Wheel (Continuous Rotation) -->
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_wheel"/>
+    <origin xyz="0 0.25 0" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+  <!-- Right Wheel (mirror of left wheel) -->
+  <link name="right_wheel">
+    <visual>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_wheel"/>
+    <origin xyz="0 -0.25 0" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+</robot>
+```
+
+**Key Elements**:
+- **`<link>`**: Defines a rigid body with:
+  - **`<visual>`**: How it appears (geometry, color)
+  - **`<collision>`**: Shape for collision detection (often simpler than visual)
+  - **`<inertial>`**: Mass and inertia tensor (required for physics)
+
+- **`<joint>`**: Connects two links. Types include:
+  - `continuous`: Unlimited rotation (wheels)
+  - `revolute`: Limited rotation (elbow joint, -π to π)
+  - `prismatic`: Linear motion (elevator, telescoping arm)
+  - `fixed`: No motion (camera mounted rigidly)
+
+- **`<origin>`**: Specifies position (`xyz`) and orientation (`rpy` = roll-pitch-yaw) of the child link relative to the parent.
+
+### Visualizing URDF in RViz
+
+Before simulating, verify your URDF structure:
+
+```bash
+# Install tools
+sudo apt-get install ros-humble-joint-state-publisher-gui ros-humble-robot-state-publisher
+
+# Create a ROS 2 package for your robot
+cd ~/ros2_ws/src
+ros2 pkg create my_robot_description --build-type ament_python
+
+# Create urdf directory
+mkdir -p my_robot_description/urdf
+# Save the URDF above as my_robot_description/urdf/robot.urdf
+
+# Build package
+cd ~/ros2_ws
+colcon build --packages-select my_robot_description
+source install/setup.bash
+
+# Visualize in RViz
+ros2 launch urdf_tutorial display.launch.py model:=~/ros2_ws/src/my_robot_description/urdf/robot.urdf
+```
+
+RViz will show your robot with sliders to move joints. This confirms your URDF kinematics are correct before adding physics.
+
+## Spawning Robots in Gazebo
+
+Gazebo uses **SDF (Simulation Description Format)**, which is similar to URDF but includes simulation-specific tags (friction coefficients, sensor plugins). Fortunately, Gazebo can convert URDF to SDF automatically.
+
+### Method 1: Direct Spawn via Command Line
+
+```bash
+# Start Gazebo
+gazebo
+
+# In a new terminal, spawn the robot
+ros2 run gazebo_ros spawn_entity.py \
+  -entity my_robot \
+  -file ~/ros2_ws/src/my_robot_description/urdf/robot.urdf \
+  -x 0 -y 0 -z 0.5
+```
+
+Your robot appears in Gazebo at position (0, 0, 0.5). The `-z 0.5` ensures it spawns above the ground plane and drops under gravity.
+
+### Method 2: Launch File (Recommended)
+
+Create `my_robot_description/launch/gazebo.launch.py`:
+
+```python
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
+    pkg_my_robot = get_package_share_directory('my_robot_description')
+
+    # Path to URDF
+    urdf_file = os.path.join(pkg_my_robot, 'urdf', 'robot.urdf')
+
+    # Start Gazebo server and client
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
+        )
+    )
+
+    # Spawn robot
+    spawn_entity = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=['-entity', 'my_robot', '-file', urdf_file, '-z', '0.5'],
+        output='screen'
+    )
+
+    return LaunchDescription([
+        gazebo,
+        spawn_entity
+    ])
+```
+
+Launch with:
+```bash
+ros2 launch my_robot_description gazebo.launch.py
+```
+
+## Simulating Sensors
+
+Real robots rely on sensors for perception and state estimation. Gazebo can simulate cameras, LiDAR, IMUs, GPS, and more.
+
+### Adding a Camera Sensor
+
+Modify your URDF to add a camera link and Gazebo plugin:
+
+```xml
+<!-- Camera Link -->
+<link name="camera_link">
+  <visual>
+    <geometry>
+      <box size="0.05 0.05 0.05"/>
+    </geometry>
+    <material name="red">
+      <color rgba="0.8 0 0 1"/>
+    </material>
+  </visual>
+</link>
+
+<joint name="camera_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="camera_link"/>
+  <origin xyz="0.3 0 0.1" rpy="0 0 0"/>
+</joint>
+
+<!-- Gazebo Plugin for Camera -->
+<gazebo reference="camera_link">
+  <sensor name="camera" type="camera">
+    <update_rate>30</update_rate>
+    <camera>
+      <horizontal_fov>1.047</horizontal_fov>
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>100</far>
+      </clip>
+    </camera>
+    <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>image_raw:=camera/image</remapping>
+        <remapping>camera_info:=camera/info</remapping>
+      </ros>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**How it works**:
+- The `<sensor>` tag defines camera parameters (resolution, field of view).
+- The `<plugin>` tag publishes images to ROS 2 topics (`/my_robot/camera/image`).
+
+**View camera output**:
+```bash
+# Terminal 1: Launch Gazebo with robot
+ros2 launch my_robot_description gazebo.launch.py
+
+# Terminal 2: View camera feed
+ros2 run rqt_image_view rqt_image_view /my_robot/camera/image
+```
+
+### Adding an IMU (Inertial Measurement Unit)
+
+IMUs measure linear acceleration and angular velocity—critical for humanoid balance control.
+
+```xml
+<gazebo reference="base_link">
+  <sensor name="imu_sensor" type="imu">
+    <always_on>true</always_on>
+    <update_rate>100</update_rate>
+    <imu>
+      <angular_velocity>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </x>
+      </angular_velocity>
+      <linear_acceleration>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.1</stddev>
+          </noise>
+        </x>
+      </linear_acceleration>
+    </imu>
+    <plugin name="imu_controller" filename="libgazebo_ros_imu_sensor.so">
+      <ros>
+        <namespace>/my_robot</namespace>
+        <remapping>~/out:=imu/data</remapping>
+      </ros>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+**Realistic noise modeling**: The `<noise>` tags add Gaussian noise to simulate real sensor imperfections. Without noise, your algorithms might work in simulation but fail on hardware.
+
+**View IMU data**:
+```bash
+ros2 topic echo /my_robot/imu/data
+```
+
+## Controlling the Robot: Applying Forces and Torques
+
+To make the robot move, we need to command its wheel joints. Gazebo provides the **`diff_drive_controller`** plugin for differential drive robots (two-wheeled robots like our example).
+
+Add this to your URDF inside a `<gazebo>` tag:
+
+```xml
+<gazebo>
+  <plugin name="diff_drive_controller" filename="libgazebo_ros_diff_drive.so">
+    <update_rate>50</update_rate>
+    <left_joint>left_wheel_joint</left_joint>
+    <right_joint>right_wheel_joint</right_joint>
+    <wheel_separation>0.5</wheel_separation>
+    <wheel_diameter>0.2</wheel_diameter>
+    <max_wheel_torque>20</max_wheel_torque>
+    <command_topic>cmd_vel</command_topic>
+    <publish_odom>true</publish_odom>
+    <publish_odom_tf>true</publish_odom_tf>
+    <odometry_topic>odom</odometry_topic>
+    <odometry_frame>odom</odometry_frame>
+    <robot_base_frame>base_link</robot_base_frame>
+  </plugin>
+</gazebo>
+```
+
+**How it works**:
+- Subscribes to `/cmd_vel` (geometry_msgs/Twist): linear and angular velocity commands.
+- Computes required wheel torques based on kinematics.
+- Publishes odometry (`/odom`) and TF transforms.
+
+**Control the robot**:
+```bash
+# Move forward at 0.5 m/s
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.5}, angular: {z: 0.0}}"
+
+# Rotate in place
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.0}, angular: {z: 0.5}}"
+```
+
+## Hands-On Exercise: Build and Test a Mobile Robot
+
+**Objective**: Create a two-wheeled mobile robot with a camera and IMU, spawn it in Gazebo, and visualize sensor data in RViz.
+
+### Step 1: Create the URDF
+
+Use the complete URDF from the previous sections (base_link, wheels, camera, IMU, diff_drive plugin). Save it as `~/ros2_ws/src/my_robot_description/urdf/mobile_robot.urdf`.
+
+### Step 2: Create a Custom Gazebo World
+
+Create `my_robot_description/worlds/simple_world.world`:
+
+```xml
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="default">
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Add some obstacles -->
+    <model name="box1">
+      <pose>2 0 0.5 0 0 0</pose>
+      <static>true</static>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>1 1 1</size></box>
+          </geometry>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box><size>1 1 1</size></box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+  </world>
+</sdf>
+```
+
+Update your launch file to use this world:
+```python
+gazebo = IncludeLaunchDescription(
+    PythonLaunchDescriptionSource(
+        os.path.join(pkg_gazebo_ros, 'launch', 'gazebo.launch.py')
+    ),
+    launch_arguments={'world': os.path.join(pkg_my_robot, 'worlds', 'simple_world.world')}.items()
+)
+```
+
+### Step 3: Launch Everything
+
+```bash
+# Terminal 1: Launch Gazebo with robot
+ros2 launch my_robot_description gazebo.launch.py
+
+# Terminal 2: Launch RViz
+rviz2
+
+# In RViz:
+# - Set Fixed Frame to "odom"
+# - Add RobotModel (shows URDF)
+# - Add Camera display (topic: /my_robot/camera/image)
+# - Add Axes display at /my_robot/imu/data
+
+# Terminal 3: Control the robot
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args --remap cmd_vel:=/cmd_vel
+```
+
+**Expected Outcome**:
+- Gazebo shows your robot in the world with a box obstacle.
+- RViz displays the robot model and camera feed.
+- Keyboard controls move the robot (i/j/k/l keys for forward/left/backward/right).
+- IMU data streams on `/my_robot/imu/data`.
+
+### Step 4: Verify Sensor Data
+
+```bash
+# Check camera is publishing
+ros2 topic hz /my_robot/camera/image
+# Expected: ~30 Hz
+
+# Check IMU is publishing
+ros2 topic hz /my_robot/imu/data
+# Expected: ~100 Hz
+
+# Visualize odometry
+ros2 topic echo /odom
+```
+
+## Next Steps
+
+You've now mastered the fundamentals of robot simulation in Gazebo:
+- Creating URDF models with links, joints, and sensors
+- Spawning robots in custom worlds
+- Simulating cameras and IMUs with realistic noise
+- Controlling robots via ROS 2 topics
+
+In **Chapter 2: Advanced Physics and Sensors**, you'll dive deeper into:
+- Contact dynamics and friction modeling
+- Simulating LiDAR for SLAM and navigation
+- Advanced sensor plugins (force-torque sensors, GPS)
+- Performance optimization (reducing simulation lag)
+- Gazebo-ROS 2 integration patterns for complex controllers
+
+**Challenge Exercise**: Modify your robot to add a caster wheel (using a `<sphere>` geometry) and adjust the `wheel_separation` parameter. Observe how this affects turning radius and stability.
