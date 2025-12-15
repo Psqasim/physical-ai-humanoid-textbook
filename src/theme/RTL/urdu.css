@@ -183,14 +183,19 @@ html[dir="rtl"] .footer__link-item {
 }
 
 /* Mobile sidebar - slide from right */
+/* NOTE: Mobile-specific RTL sidebar styles are now in custom.css media queries */
+/* These are desktop/fallback styles only */
 html[dir="rtl"] .navbar-sidebar {
   left: auto;
   right: 0;
-  direction: ltr;
 }
 
-html[dir="rtl"] .navbar-sidebar__item {
-  text-align: left;
+/* Sidebar items - LTR for navigation consistency on desktop */
+@media (min-width: 996px) {
+  html[dir="rtl"] .navbar-sidebar__item {
+    text-align: left;
+    direction: ltr;
+  }
 }
 
 /* ==========================================================================
@@ -452,9 +457,13 @@ html[dir="rtl"] .dropdown .dropdown__menu {
 }
 
 /* Mobile toggle button positioning */
-html[dir="rtl"] .navbar__toggle {
-  margin-right: auto;
-  margin-left: 0;
+/* NOTE: Mobile-specific toggle button styles are now in custom.css media queries */
+/* This is only for desktop fallback */
+@media (min-width: 996px) {
+  html[dir="rtl"] .navbar__toggle {
+    margin-right: auto;
+    margin-left: 0;
+  }
 }
 
 /* Fix for scrollbar in RTL */
