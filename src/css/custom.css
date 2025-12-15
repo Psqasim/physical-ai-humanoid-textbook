@@ -226,18 +226,82 @@ html[dir="rtl"] .navbar-sidebar--show {
     direction: rtl;
   }
 
+  /* CRITICAL FIX: Toggle button positioning for RTL mobile */
   html[dir="rtl"] .navbar__toggle {
-    margin-left: 0;
-    margin-right: auto;
+    /* Position on LEFT side of screen (appears RIGHT in RTL) */
+    margin-left: 0.5rem !important;
+    margin-right: 0 !important;
+    order: -1; /* Ensure it's first in flex order */
+    z-index: 1000; /* Above other navbar items */
+    position: relative; /* Establish stacking context */
+    display: flex !important; /* Ensure visibility */
+    align-items: center;
+    justify-content: center;
   }
 
+  /* Mobile sidebar positioning for RTL */
   html[dir="rtl"] .navbar-sidebar {
-    right: 0;
-    left: auto;
+    /* Position on RIGHT side of screen */
+    right: 0 !important;
+    left: auto !important;
+    /* Start hidden (off-screen to the right) */
+    transform: translate3d(100%, 0, 0) !important;
+    transition: transform 0.3s ease-in-out;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 80vw;
+    max-width: 350px;
+    z-index: 200;
+    background: var(--ifm-navbar-background-color);
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
   }
 
+  /* Show sidebar - slide in from right */
+  html[dir="rtl"] .navbar-sidebar--show {
+    transform: translate3d(0, 0, 0) !important;
+  }
+
+  /* Sidebar backdrop - ensure it covers the screen */
+  html[dir="rtl"] .navbar-sidebar__backdrop {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 150 !important;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 1;
+    transition: opacity 0.3s ease-in-out;
+  }
+
+  /* Sidebar items alignment */
   html[dir="rtl"] .navbar-sidebar__items {
     text-align: right;
+    direction: rtl;
+  }
+
+  html[dir="rtl"] .navbar-sidebar__item {
+    text-align: right;
+  }
+
+  /* Language switcher in mobile sidebar - RTL */
+  html[dir="rtl"] .navbar-sidebar .localeSwitcher {
+    direction: rtl;
+    justify-content: flex-start;
+  }
+
+  /* Navbar logo and branding - keep in proper position */
+  html[dir="rtl"] .navbar__brand {
+    margin-right: auto;
+    margin-left: 0;
+  }
+
+  /* Ensure navbar items container has proper flex layout */
+  html[dir="rtl"] .navbar__items--right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 }
 
