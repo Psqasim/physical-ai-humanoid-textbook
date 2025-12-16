@@ -101,26 +101,55 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscript, currentLanguage }
       const results = event.results;
       const finalResult = results[event.resultIndex];
 
+      console.log('Speech recognition results:', {
+        resultIndex: event.resultIndex,
+        resultLength: finalResult.length,
+        isFinal: finalResult.isFinal,
+      });
+
       if (finalResult.isFinal) {
-        // Noise filtering: choose highest confidence alternative
+        // Get transcript - prefer highest confidence, fallback to first result
         let bestTranscript = '';
-        let bestConfidence = 0;
+        let bestConfidence = -1;
 
         for (let i = 0; i < finalResult.length; i++) {
           const alternative = finalResult[i];
-          if (alternative.confidence > bestConfidence) {
-            bestConfidence = alternative.confidence;
-            bestTranscript = alternative.transcript;
+          const confidence = alternative.confidence ?? 0;
+
+          console.log(`Alternative ${i}:`, {
+            transcript: alternative.transcript,
+            confidence: confidence,
+            transcriptLength: alternative.transcript?.length || 0,
+          });
+
+          // Select best alternative by confidence, or first if confidence unavailable
+          if (i === 0 || confidence > bestConfidence) {
+            bestConfidence = confidence;
+            bestTranscript = alternative.transcript || '';
           }
         }
 
-        // Detect dominant language from transcript
-        const detectedLanguage = detectDominantLanguage(bestTranscript, currentLanguage);
+        console.log('Selected transcript:', {
+          text: bestTranscript,
+          length: bestTranscript.length,
+          confidence: bestConfidence,
+        });
 
-        // Pass transcript to parent component
-        onTranscript(bestTranscript, detectedLanguage);
+        console.log('Final transcript:', bestTranscript);
+
+        if (bestTranscript.trim()) {
+          // Detect dominant language from transcript
+          const detectedLanguage = detectDominantLanguage(bestTranscript, currentLanguage);
+
+          // Pass transcript to parent component
+          onTranscript(bestTranscript.trim(), detectedLanguage);
+          setError(null);
+        } else {
+          console.warn('Empty transcript received');
+          setError('No speech detected. Please try again.');
+        }
+
         setIsListening(false);
-        setError(null);
       }
     };
 
@@ -154,8 +183,15 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscript, currentLanguage }
       setIsListening(false);
     };
 
+    // Handle recognition start
+    recognition.onstart = () => {
+      console.log('Voice recognition started - listening...');
+      setIsListening(true);
+    };
+
     // Handle recognition end
     recognition.onend = () => {
+      console.log('Voice recognition ended');
       setIsListening(false);
     };
   }, [recognition, currentLanguage, onTranscript]);
@@ -190,10 +226,16 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscript, currentLanguage }
     if (!recognition) return;
 
     if (isListening) {
+      console.log('Stopping voice recognition...');
       recognition.stop();
       setIsListening(false);
     } else {
       try {
+        console.log('Starting voice recognition...', {
+          language: recognition.lang,
+          continuous: recognition.continuous,
+          interimResults: recognition.interimResults,
+        });
         recognition.start();
         setIsListening(true);
         setError(null);
