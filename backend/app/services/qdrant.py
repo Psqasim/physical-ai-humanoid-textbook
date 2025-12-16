@@ -45,7 +45,6 @@ Usage:
 import asyncio
 from typing import Any, Sequence
 from dataclasses import dataclass
-from uuid import uuid4
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
@@ -74,13 +73,16 @@ class EmbeddingChunk:
     storing textbook chunks in Qdrant.
 
     Attributes:
-        id: Unique identifier (format: "doc_path:chunk_index")
+        id: Unique identifier (SHA256 hash for Qdrant compatibility)
         vector: Embedding vector (1536 dimensions for text-embedding-3-small)
         doc_path: Relative path to source document (e.g., "docs/intro.md")
         module_id: Module identifier (e.g., "1", "2")
         heading: Section heading from the document
         chunk_index: Index of chunk within the document (0-based)
         text: Raw text content of the chunk
+        language: Document language (en, ja, ur)
+        url_path: URL path for GitHub Pages routing
+        raw_id: Original ID (doc_path:chunk_index) for reference
     """
 
     id: str
@@ -90,6 +92,9 @@ class EmbeddingChunk:
     heading: str
     chunk_index: int
     text: str
+    language: str = "en"
+    url_path: str = ""
+    raw_id: str = ""
 
 
 @dataclass
@@ -105,6 +110,8 @@ class SearchResult:
         heading: Section heading from payload
         chunk_index: Chunk index from payload
         text: Text content from payload
+        language: Language code from payload (en, ja, ur)
+        url_path: URL path for linking to documentation
     """
 
     id: str
@@ -114,6 +121,8 @@ class SearchResult:
     heading: str
     chunk_index: int
     text: str
+    language: str = "en"
+    url_path: str = ""
 
 
 def get_qdrant_client() -> AsyncQdrantClient:
@@ -283,6 +292,13 @@ async def create_payload_indexes(
         field_schema=PayloadSchemaType.KEYWORD,
     )
 
+    # Create language index (KEYWORD for exact matching)
+    await client.create_payload_index(
+        collection_name=collection_name,
+        field_name="language",
+        field_schema=PayloadSchemaType.KEYWORD,
+    )
+
 
 async def upsert_embeddings(
     chunks: Sequence[EmbeddingChunk],
@@ -325,16 +341,17 @@ async def upsert_embeddings(
     # Convert chunks to Qdrant points
     points = [
     PointStruct(
-        id=uuid4(),  # valid UUID for Qdrant
+        id=chunk.id,  # SHA256 hash (Qdrant-compatible)
         vector=chunk.vector,
         payload={
-            # Preserve your meaningful identifier separately:
-            "chunk_id": chunk.id,  # e.g. "/docs/intro:0"
+            "raw_id": chunk.raw_id,  # Original ID for reference
             "doc_path": chunk.doc_path,
             "module_id": chunk.module_id,
             "heading": chunk.heading,
             "chunk_index": chunk.chunk_index,
             "text": chunk.text,
+            "language": chunk.language,
+            "url_path": chunk.url_path,
         },
     )
     for chunk in chunks
@@ -353,6 +370,7 @@ async def search_similar(
     collection_name: str | None = None,
     doc_path: str | None = None,
     module_id: str | None = None,
+    language: str | None = None,
     score_threshold: float | None = None,
 ) -> list[SearchResult]:
     """
@@ -367,6 +385,7 @@ async def search_similar(
         collection_name: Name of collection (defaults to settings.QDRANT_COLLECTION_NAME)
         doc_path: Optional filter by document path (exact match)
         module_id: Optional filter by module ID (exact match)
+        language: Optional filter by language ("en", "ja", or "ur")
         score_threshold: Optional minimum similarity score (0-1 for cosine)
 
     Returns:
@@ -381,6 +400,13 @@ async def search_similar(
             query_vector,
             limit=5,
             doc_path="docs/intro.md"
+        )
+
+        # Language-filtered search (e.g., Japanese only)
+        results = await search_similar(
+            query_vector,
+            limit=5,
+            language="ja"
         )
     """
     sync_client = get_sync_qdrant_client()
@@ -400,6 +426,13 @@ async def search_similar(
             FieldCondition(
                 key="module_id",
                 match=MatchValue(value=module_id),
+            )
+        )
+    if language:
+        filter_conditions.append(
+            FieldCondition(
+                key="language",
+                match=MatchValue(value=language),
             )
         )
 
@@ -432,6 +465,8 @@ async def search_similar(
             heading=point.payload.get("heading", ""),
             chunk_index=point.payload.get("chunk_index", 0),
             text=point.payload.get("text", ""),
+            language=point.payload.get("language", "en"),
+            url_path=point.payload.get("url_path", ""),
         )
         for point in search_results
     ]

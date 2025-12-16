@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /mnt/d/gov ai code/QUATER 4 part 2/hacakthon/physical-ai-humanoid-textbook && find:*)"
+    ]
+  }
+}

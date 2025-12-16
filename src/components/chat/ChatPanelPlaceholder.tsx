@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import { useLocation } from '@docusaurus/router';
 import styles from './ChatPanelPlaceholder.module.css';
 import CitationCard from './CitationCard';
 import LoadingIndicator from './LoadingIndicator';
 import ErrorMessage from './ErrorMessage';
+import VoiceInput from '../VoiceInput';
 
 interface ChatPanelPlaceholderProps {
   isOpen?: boolean;
@@ -32,6 +34,7 @@ interface ChatRequest {
   selectedText?: string;
   docPath?: string;
   userId: string | null;
+  preferredLanguage?: 'en' | 'ur' | 'ja';
 }
 
 interface ChatResponse {
@@ -46,7 +49,8 @@ export default function ChatPanelPlaceholder({
   selectedText = '',
   initialMode = 'whole-book'
 }: ChatPanelPlaceholderProps): JSX.Element {
-  const { siteConfig } = useDocusaurusContext();
+  const { siteConfig, i18n } = useDocusaurusContext();
+  const location = useLocation();
   const backendUrl = (siteConfig.customFields?.backendUrl as string | undefined) ?? 'http://localhost:8001';
   const [mode, setMode] = useState<ChatMode>(initialMode);
   const [input, setInput] = useState<string>('');
@@ -54,6 +58,30 @@ export default function ChatPanelPlaceholder({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Detect current locale from URL or i18n context
+   * Priority: URL locale > i18n.currentLocale > default 'en'
+   */
+  const getCurrentLocale = (): 'en' | 'ur' | 'ja' => {
+    // Try to extract locale from URL path (e.g., /ur/docs/intro)
+    const pathSegments = location.pathname.split('/').filter(Boolean);
+    const urlLocale = pathSegments[0];
+
+    // Check if URL locale is one of our supported languages
+    if (urlLocale === 'ur' || urlLocale === 'ja' || urlLocale === 'en') {
+      return urlLocale;
+    }
+
+    // Fallback to i18n context
+    const contextLocale = i18n?.currentLocale;
+    if (contextLocale === 'ur' || contextLocale === 'ja' || contextLocale === 'en') {
+      return contextLocale;
+    }
+
+    // Default to English
+    return 'en';
+  };
 
   // DEBUG: Log props on mount and when they change
   useEffect(() => {
@@ -165,17 +193,28 @@ export default function ChatPanelPlaceholder({
     setError(null);
 
     try {
+      // Detect current language from site locale
+      const currentLocale = getCurrentLocale();
+
       // Build request payload
       const payload: ChatRequest = {
         mode,
         question,
         userId: null, // Anonymous for now
+        preferredLanguage: currentLocale, // Pass current site language to backend
       };
 
       if (mode === 'selection') {
         payload.selectedText = selectedText || '';
         payload.docPath = getDocPath();
       }
+
+      // DEBUG: Log language detection
+      console.log('=== Chat Language Detection ===');
+      console.log('Current locale:', currentLocale);
+      console.log('i18n.currentLocale:', i18n?.currentLocale);
+      console.log('URL pathname:', location.pathname);
+      console.log('==============================');
 
       // DEBUG: Log payload before sending
       console.log('=== API Request Payload ===');
@@ -263,6 +302,15 @@ export default function ChatPanelPlaceholder({
       onClose?.();
     }
   };
+
+  /**
+   * Handle voice input transcript
+   * Inserts transcribed text into the input field (user manually sends)
+   */
+  const handleVoiceTranscript = useCallback((text: string, detectedLanguage: string) => {
+    console.log('Voice transcript received:', text, 'Language:', detectedLanguage);
+    setInput(prev => prev ? `${prev} ${text}` : text);
+  }, []);
 
   if (!isOpen) {
     return null;
@@ -402,14 +450,20 @@ export default function ChatPanelPlaceholder({
           <span id="chat-input-hint" className="sr-only">
             Press Enter to send, Shift+Enter for new line, Escape to close
           </span>
-          <button
-            className={styles.sendButton}
-            onClick={handleSend}
-            disabled={loading || !input.trim()}
-            aria-label="Send message"
-          >
-            {loading ? '⏳' : '📤'} Send
-          </button>
+          <div className={styles.inputActions}>
+            <VoiceInput
+              onTranscript={handleVoiceTranscript}
+              currentLanguage={getCurrentLocale()}
+            />
+            <button
+              className={styles.sendButton}
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              aria-label="Send message"
+            >
+              {loading ? '⏳' : '📤'} Send
+            </button>
+          </div>
         </div>
       </div>
     </div>
