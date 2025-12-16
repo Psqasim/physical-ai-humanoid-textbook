@@ -121,9 +121,9 @@ class Citation(BaseModel):
     )
     snippet: str = Field(
         ...,
-        min_length=10,
+        min_length=1,
         max_length=500,
-        description="Text excerpt from the source (50-100 words)",
+        description="Text excerpt from the source (typically 50-100 words, but can be shorter for headings or short sections)",
     )
 
     model_config = {
@@ -143,13 +143,14 @@ class ChatResponse(BaseModel):
     """
     Response schema for POST /api/chat endpoint.
 
-    Returns the AI-generated answer along with source citations
-    and the mode that was used.
+    Returns the AI-generated answer along with source citations,
+    mode, language metadata, and confidence scoring.
 
     Attributes:
         answer: AI-generated answer to the user's question
         citations: List of source references (3-5 citations)
         mode: Chat mode used ("whole-book" or "selection")
+        confidence: Deterministic confidence level based on retrieval quality
     """
 
     answer: str = Field(
@@ -164,6 +165,10 @@ class ChatResponse(BaseModel):
     mode: Literal["whole-book", "selection"] = Field(
         ...,
         description="Chat mode that was used for this response",
+    )
+    confidence: Literal["high", "medium", "low"] | None = Field(
+        None,
+        description="Deterministic confidence level based on retrieval quality (high: ≥5 chunks no fallback, medium: 3-4 chunks no fallback, low: <3 chunks or fallback applied)",
     )
     detectedInputLanguage: Literal["en", "ur", "ja", "unknown"] | None = Field(
         None,
@@ -191,6 +196,120 @@ class ChatResponse(BaseModel):
                         }
                     ],
                     "mode": "whole-book",
+                }
+            ]
+        }
+    }
+
+
+class VoiceTranscription(BaseModel):
+    """
+    Transcription result from speech-to-text.
+
+    Attributes:
+        text: Transcribed text from audio
+        detectedLanguage: Auto-detected language from audio (en, ur, ja, or unknown)
+        confidence: Detection confidence level (high or low)
+        durationSeconds: Audio duration in seconds
+    """
+
+    text: str = Field(
+        ...,
+        description="Transcribed text from the audio input",
+    )
+    detectedLanguage: Literal["en", "ur", "ja", "unknown"] = Field(
+        ...,
+        description="Language detected from the audio by Whisper",
+    )
+    confidence: Literal["high", "low"] = Field(
+        ...,
+        description="Confidence of language detection (high if Whisper detected, low if fallback)",
+    )
+    durationSeconds: float | None = Field(
+        None,
+        description="Duration of the audio in seconds",
+    )
+
+
+class VoiceChatResponse(BaseModel):
+    """
+    Response schema for POST /api/voice/chat endpoint.
+
+    Returns the voice processing results including transcription,
+    RAG answer, and optional audio response.
+
+    Attributes:
+        transcription: Speech-to-text result with language detection
+        answer: AI-generated answer text with sources
+        citations: List of source references
+        mode: Chat mode used
+        confidence: Retrieval confidence level
+        responseLanguage: Language used for the response
+        fallbackApplied: Whether language fallback was applied
+        hasAudio: Whether audio response is available
+    """
+
+    transcription: VoiceTranscription = Field(
+        ...,
+        description="Speech-to-text transcription result",
+    )
+    answer: str = Field(
+        ...,
+        description="AI-generated answer to the transcribed question",
+    )
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="List of source references",
+    )
+    mode: Literal["whole-book", "selection"] = Field(
+        default="whole-book",
+        description="Chat mode used (voice always uses whole-book)",
+    )
+    confidence: Literal["high", "medium", "low"] | None = Field(
+        None,
+        description="Deterministic confidence level based on retrieval quality",
+    )
+    responseLanguage: Literal["en", "ur", "ja"] | None = Field(
+        None,
+        description="Language used for the AI response",
+    )
+    fallbackApplied: bool | None = Field(
+        None,
+        description="Whether language fallback was applied",
+    )
+    hasAudio: bool = Field(
+        default=False,
+        description="Whether TTS audio response is available at /api/voice/audio/{id}",
+    )
+    audioId: str | None = Field(
+        None,
+        description="ID to retrieve the audio response (if hasAudio is true)",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "transcription": {
+                        "text": "What is ROS 2?",
+                        "detectedLanguage": "en",
+                        "confidence": "high",
+                        "durationSeconds": 2.5,
+                    },
+                    "answer": "ROS 2 is a flexible robotics framework...\n\n📚 Sources:\n1. Introduction to ROS 2 - docs/module-1/chapter-1.md",
+                    "citations": [
+                        {
+                            "docPath": "docs/module-1/chapter-1.md",
+                            "heading": "What is ROS 2?",
+                            "snippet": "ROS 2 is the second generation of the Robot Operating System...",
+                        }
+                    ],
+                    "mode": "whole-book",
+                    "confidence": "high",
+                    "responseLanguage": "en",
+                    "fallbackApplied": False,
+                    "hasAudio": True,
+                    "audioId": "abc123",
                 }
             ]
         }

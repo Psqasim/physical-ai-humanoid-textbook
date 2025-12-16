@@ -12,7 +12,7 @@ Supports two modes:
 - selection: Focus on selected text and nearby chunks
 """
 
-from typing import List
+from typing import List, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 
@@ -24,60 +24,112 @@ from app.services.qdrant import search_similar, SearchResult
 
 logger = get_logger(__name__)
 
+# Type alias for supported languages
+LanguageCode = Literal["en", "ur", "ja"]
 
-# System prompt for OpenAI chat model
+
+# Language-specific response instructions
+LANGUAGE_INSTRUCTIONS = {
+    "en": "Respond in English.",
+    "ur": "اردو میں جواب دیں۔ (Respond in Urdu using Urdu script.)",
+    "ja": "日本語で回答してください。(Respond in Japanese.)",
+}
+
+# System prompt for OpenAI chat model - grounded RAG with language support
 SYSTEM_PROMPT = """You are a helpful AI tutor for the Physical AI & Humanoid Robotics textbook.
 
-CONTEXT FROM TEXTBOOK:
+**RESPONSE LANGUAGE: {response_language_instruction}**
+
+**RETRIEVED CONTEXT FROM TEXTBOOK:**
 {context}
 
-INSTRUCTIONS:
-1. Answer the user's question using ONLY the information provided in the context above.
-2. If the context contains information relevant to the question, use it to provide a detailed answer.
-3. IMPORTANT FOR VAGUE OR UNCLEAR QUESTIONS:
-   - If the user asks vague questions like "explain this", "what is this", "answer the selected text",
-     "can u explain", "tell me about this", treat it as: "Explain the main concepts in the provided context"
-   - Always assume the user wants you to explain/clarify the content in the context
-   - Even if the question is unclear or poorly worded, provide a helpful explanation of the context
-   - Focus on the most important concepts, definitions, and examples from the context
-4. Cite specific sections when possible (e.g., "According to the Introduction section..." or "As explained in the Communication Patterns section...").
-5. If the context does NOT contain enough information to answer the question, politely say:
-   "I don't have enough information about that specific topic in the provided sections.
-   Try asking a more specific question or use whole-book search for broader queries."
-6. Use clear, educational language appropriate for students learning robotics.
-7. Format your answer in clear paragraphs (2-4 paragraphs typically), not bullet points unless specifically asked.
-8. When explaining code, break down what each part does and why it's important.
+**STRICT GROUNDING RULES (MUST FOLLOW):**
+1. ONLY use information from the RETRIEVED CONTEXT above. Do NOT use any external knowledge.
+2. If the answer is NOT in the context, respond with EXACTLY:
+   "{not_found_message}"
+3. Do NOT hallucinate, invent, or assume information not present in the context.
+4. Every claim you make MUST be traceable to the provided context.
 
-Remember: The context above is what the student is currently reading or selected. Your job is to help them understand it, even if they don't ask perfectly!"""
+**ANSWERING GUIDELINES:**
+1. For vague questions ("explain this", "what is this", "tell me about this"):
+   - Treat as: "Explain the main concepts in the provided context"
+   - Focus on key concepts, definitions, and examples FROM THE CONTEXT ONLY
+2. Cite specific sections when possible (e.g., "According to the Introduction section...")
+3. Use clear, educational language appropriate for students learning robotics.
+4. Format answers in 2-4 clear paragraphs, not bullet points unless asked.
+5. When explaining code, break down what each part does based on the context.
+
+**REMEMBER:**
+- The context is what the student selected or searched for
+- Your job is to explain ONLY what is in the context
+- If information is missing, say so clearly - do NOT make things up
+- Always respond in the specified language: {response_language}"""
+
+# Not-found messages in each language
+NOT_FOUND_MESSAGES = {
+    "en": "I could not find this information in the documentation. Please try a different question or search the entire textbook.",
+    "ur": "مجھے دستاویزات میں یہ معلومات نہیں مل سکیں۔ براہ کرم کوئی دوسرا سوال کریں یا پوری کتاب میں تلاش کریں۔",
+    "ja": "ドキュメントにこの情報が見つかりませんでした。別の質問をするか、教科書全体を検索してください。",
+}
 
 
 async def retrieve_chunks_whole_book(
     question: str,
     limit: int = 10,
-) -> List[SearchResult]:
+    language: LanguageCode | None = None,
+) -> tuple[List[SearchResult], bool]:
     """
-    Retrieve relevant chunks for whole-book mode.
+    Retrieve relevant chunks for whole-book mode with language filtering.
+
+    If a language is specified, retrieves chunks in that language first.
+    If fewer than 3 results are found, falls back to English.
 
     Args:
         question: User's question
         limit: Maximum number of chunks to retrieve
+        language: Preferred language code ("en", "ur", "ja") or None for all languages
 
     Returns:
-        List of SearchResult objects, sorted by relevance
+        Tuple of (results, fallback_applied):
+        - results: List of SearchResult objects, sorted by relevance
+        - fallback_applied: True if English fallback was used
     """
-    logger.info(f"Retrieving chunks for whole-book mode (limit={limit})")
+    logger.info(f"Retrieving chunks for whole-book mode (limit={limit}, language={language})")
 
     # Generate embedding for question
     query_vector = await embed_query(question)
 
-    # Search Qdrant across entire collection
-    results = await search_similar(
-        query_vector=query_vector,
-        limit=limit,
-    )
+    fallback_applied = False
 
-    logger.info(f"Retrieved {len(results)} chunks from Qdrant")
-    return results
+    # If language is specified, try language-filtered search first
+    if language:
+        results = await search_similar(
+            query_vector=query_vector,
+            limit=limit,
+            language=language,
+        )
+        logger.info(f"Language-filtered search ({language}): {len(results)} results")
+
+        # If insufficient results and not already English, fall back to English
+        if len(results) < 3 and language != "en":
+            logger.info(f"Insufficient {language} results, falling back to English")
+            english_results = await search_similar(
+                query_vector=query_vector,
+                limit=limit - len(results),
+                language="en",
+            )
+            results = results + english_results
+            fallback_applied = True
+            logger.info(f"After English fallback: {len(results)} total results")
+    else:
+        # No language filter - search across all languages
+        results = await search_similar(
+            query_vector=query_vector,
+            limit=limit,
+        )
+
+    logger.info(f"Retrieved {len(results)} chunks from Qdrant (fallback={fallback_applied})")
+    return results, fallback_applied
 
 
 async def retrieve_chunks_selection(
@@ -85,34 +137,41 @@ async def retrieve_chunks_selection(
     selected_text: str,
     doc_path: str,
     limit: int = 5,
-) -> List[SearchResult]:
+    language: LanguageCode | None = None,
+) -> tuple[List[SearchResult], bool]:
     """
-    Retrieve relevant chunks for selection mode.
+    Retrieve relevant chunks for selection mode with language filtering.
 
     Strategy:
-    1. Search within the specified document
+    1. Search within the specified document (with optional language filter)
     2. Prioritize chunks that contain or are near the selected text
-    3. If no results, fall back to whole-book mode
+    3. If no results, fall back to whole-book mode (with language fallback)
 
     Args:
         question: User's question
         selected_text: Text selected by user
         doc_path: Document path to filter by
         limit: Maximum number of chunks to retrieve
+        language: Preferred language code ("en", "ur", "ja") or None for all languages
 
     Returns:
-        List of SearchResult objects, sorted by relevance
+        Tuple of (results, fallback_applied):
+        - results: List of SearchResult objects, sorted by relevance
+        - fallback_applied: True if English fallback was used
     """
-    logger.info(f"Retrieving chunks for selection mode (doc={doc_path}, limit={limit})")
+    logger.info(f"Retrieving chunks for selection mode (doc={doc_path}, limit={limit}, language={language})")
 
     # Generate embedding for the selected text (more relevant than question)
     query_vector = await embed_query(selected_text)
 
-    # Search within the specific document
+    fallback_applied = False
+
+    # Search within the specific document with optional language filter
     results = await search_similar(
         query_vector=query_vector,
         limit=limit,
         doc_path=doc_path,
+        language=language,
     )
 
     # Fallback to whole-book if no results in document
@@ -120,10 +179,12 @@ async def retrieve_chunks_selection(
         logger.warning(
             f"No chunks found in {doc_path}, falling back to whole-book mode"
         )
-        results = await retrieve_chunks_whole_book(question, limit=limit)
+        results, fallback_applied = await retrieve_chunks_whole_book(
+            question, limit=limit, language=language
+        )
 
-    logger.info(f"Retrieved {len(results)} chunks from Qdrant (selection mode)")
-    return results
+    logger.info(f"Retrieved {len(results)} chunks from Qdrant (selection mode, fallback={fallback_applied})")
+    return results, fallback_applied
 
 
 def build_context(chunks: List[SearchResult]) -> str:
@@ -158,19 +219,26 @@ def extract_citations(chunks: List[SearchResult], max_citations: int = 5) -> Lis
     Extract citations from retrieved chunks.
 
     Takes the top N chunks by relevance score and creates Citation objects.
+    Handles short snippets gracefully, especially for multilingual content
+    where headings or short sections may convey meaningful information.
 
     Args:
         chunks: Retrieved chunks
         max_citations: Maximum number of citations to return
 
     Returns:
-        List of Citation objects
+        List of Citation objects (only includes chunks with non-empty text)
     """
     citations = []
 
     for chunk in chunks[:max_citations]:
+        # Skip chunks with empty text
+        if not chunk.text or not chunk.text.strip():
+            continue
+
         # Create snippet (first 150 chars or full text if shorter)
-        snippet = chunk.text
+        snippet = chunk.text.strip()
+
         if len(snippet) > 150:
             # Try to cut at sentence boundary
             cutoff = snippet[:150].rfind(". ")
@@ -178,6 +246,10 @@ def extract_citations(chunks: List[SearchResult], max_citations: int = 5) -> Lis
                 snippet = snippet[: cutoff + 1]
             else:
                 snippet = snippet[:150] + "..."
+
+        # For very short snippets (e.g., headings), use them as-is
+        # This is especially important for multilingual content (Japanese, Urdu)
+        # where fewer characters can convey meaningful information
 
         citation = Citation(
             docPath=chunk.doc_path,
@@ -189,29 +261,161 @@ def extract_citations(chunks: List[SearchResult], max_citations: int = 5) -> Lis
     return citations
 
 
+def format_sources_section(chunks: List[SearchResult], language: LanguageCode = "en") -> str:
+    """
+    Format a deterministic sources section from retrieved chunks.
+
+    Sources are extracted ONLY from chunk metadata - the LLM does not generate these.
+    This ensures sources are always accurate and traceable to actual retrieved content.
+
+    Args:
+        chunks: Retrieved chunks with metadata (doc_path, heading, url_path, module_id)
+        language: Response language for the header
+
+    Returns:
+        Formatted sources section string to append after the answer
+
+    Example output:
+        📚 Sources:
+        1. Introduction to ROS 2 - docs/module-1/chapter-1.md
+        2. Communication Patterns - docs/module-1/chapter-2.md
+    """
+    if not chunks:
+        return ""
+
+    # Source header in different languages
+    source_headers = {
+        "en": "📚 Sources:",
+        "ur": "📚 ماخذ:",
+        "ja": "📚 出典:",
+    }
+
+    header = source_headers.get(language, source_headers["en"])
+    sources = []
+    seen_docs = set()  # Deduplicate by doc_path
+
+    for chunk in chunks:
+        # Deduplicate sources by document path
+        if chunk.doc_path in seen_docs:
+            continue
+        seen_docs.add(chunk.doc_path)
+
+        # Format: "Heading - doc_path" or just doc_path if no heading
+        if chunk.heading:
+            source_line = f"{chunk.heading} - {chunk.doc_path}"
+        else:
+            source_line = chunk.doc_path
+
+        # Add URL path if available for clickable links
+        if chunk.url_path:
+            source_line = f"{source_line} ({chunk.url_path})"
+
+        sources.append(source_line)
+
+    if not sources:
+        return ""
+
+    # Format as numbered list
+    numbered_sources = [f"{i+1}. {src}" for i, src in enumerate(sources[:5])]  # Max 5 sources
+    return f"\n\n{header}\n" + "\n".join(numbered_sources)
+
+
+# Type alias for confidence levels
+ConfidenceLevel = Literal["high", "medium", "low"]
+
+
+def calculate_confidence(
+    num_chunks: int,
+    fallback_applied: bool,
+) -> ConfidenceLevel:
+    """
+    Calculate deterministic confidence level based on retrieval signals.
+
+    This function uses ONLY retrieval metrics (no LLM involvement) to
+    determine confidence, ensuring reproducible results.
+
+    Logic:
+    - high: ≥5 chunks retrieved AND no language fallback
+    - medium: 3-4 chunks retrieved AND no language fallback
+    - low: <3 chunks OR language fallback was applied
+
+    Args:
+        num_chunks: Number of chunks retrieved from Qdrant
+        fallback_applied: Whether English fallback was used due to insufficient
+                         content in the preferred language
+
+    Returns:
+        Confidence level: "high", "medium", or "low"
+
+    Examples:
+        >>> calculate_confidence(5, False)
+        "high"
+        >>> calculate_confidence(4, False)
+        "medium"
+        >>> calculate_confidence(5, True)
+        "low"
+        >>> calculate_confidence(2, False)
+        "low"
+    """
+    # Fallback always indicates lower confidence (content not in preferred language)
+    if fallback_applied:
+        return "low"
+
+    # Confidence based on number of relevant chunks found
+    if num_chunks >= 5:
+        return "high"
+    elif num_chunks >= 3:
+        return "medium"
+    else:
+        return "low"
+
+
 async def generate_answer(
     question: str,
     context: str,
     chat_model: str,
+    response_language: LanguageCode = "en",
 ) -> str:
     """
-    Generate answer using OpenAI chat model.
+    Generate grounded answer using OpenAI chat model with language support.
+
+    The system prompt enforces strict grounding - the LLM can only use
+    information from the provided context and must respond in the specified language.
 
     Args:
         question: User's question
-        context: Retrieved context from textbook
+        context: Retrieved context from textbook (RAG chunks)
         chat_model: OpenAI model name (e.g., "gpt-4o-mini")
+        response_language: Language for the response ("en", "ur", "ja")
 
     Returns:
-        Generated answer text
+        Generated answer text in the specified language
+
+    Example:
+        answer = await generate_answer(
+            question="What is ROS 2?",
+            context="[Source 1]\\nROS 2 is a robotics middleware...",
+            chat_model="gpt-4o-mini",
+            response_language="ja"
+        )
+        # Returns answer in Japanese, grounded in context
     """
-    logger.info(f"Generating answer with model: {chat_model}")
+    logger.info(f"Generating answer with model: {chat_model}, language: {response_language}")
+
+    # Get language-specific instructions and not-found message
+    language_instruction = LANGUAGE_INSTRUCTIONS.get(response_language, LANGUAGE_INSTRUCTIONS["en"])
+    not_found_message = NOT_FOUND_MESSAGES.get(response_language, NOT_FOUND_MESSAGES["en"])
 
     # Create OpenAI client with proper async context manager
     async with AsyncOpenAI(api_key=settings.OPENAI_API_KEY) as client:
-        # Format system prompt with context
-        system_message = SYSTEM_PROMPT.format(context=context)
-    
+        # Format system prompt with context and language settings
+        system_message = SYSTEM_PROMPT.format(
+            context=context,
+            response_language=response_language,
+            response_language_instruction=language_instruction,
+            not_found_message=not_found_message,
+        )
+
         # Call OpenAI chat API
         response = await client.chat.completions.create(
             model=chat_model,
@@ -219,13 +423,13 @@ async def generate_answer(
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": question},
             ],
-            temperature=0.3,  # Lower temperature for more factual responses
-            max_tokens=800,  # Limit response length
+            temperature=0.2,  # Lower temperature for more factual, grounded responses
+            max_tokens=1000,  # Slightly higher for multilingual responses
         )
-    
+
         # Extract answer
         answer = response.choices[0].message.content or ""
-        logger.info(f"Generated answer ({len(answer)} chars)")
+        logger.info(f"Generated answer ({len(answer)} chars) in {response_language}")
         return answer
 
 
@@ -235,22 +439,27 @@ async def answer_chat_request(
     settings_override: Settings | None = None,
 ) -> ChatResponse:
     """
-    Main RAG pipeline: retrieve, generate, and respond.
+    Main RAG pipeline: retrieve, generate, and respond with language-aware retrieval.
 
     This is the core function that orchestrates the RAG process:
-    1. Retrieve relevant chunks based on mode
+    1. Retrieve relevant chunks based on mode and preferred language
     2. Build context from chunks
     3. Generate answer using OpenAI
     4. Extract citations
-    5. Return structured response
+    5. Return structured response with language metadata
+
+    Language filtering:
+    - If preferredLanguage is specified, retrieves chunks in that language first
+    - Falls back to English if fewer than 3 results in preferred language
+    - Response includes fallbackApplied flag when English fallback was used
 
     Args:
-        request: Chat request with mode, question, and optional context
+        request: Chat request with mode, question, optional context, and preferredLanguage
         db: Database session (for future enhancements, not used yet)
         settings_override: Optional settings override (for testing)
 
     Returns:
-        ChatResponse with answer, citations, and mode
+        ChatResponse with answer, citations, mode, and language metadata
 
     Raises:
         ValueError: If request validation fails
@@ -258,17 +467,24 @@ async def answer_chat_request(
     """
     config = settings_override or settings
 
+    # Get preferred language from request (defaults to None = search all languages)
+    preferred_language = request.preferredLanguage
+
     logger.info(
         f"Processing chat request: mode={request.mode}, "
         f"question_len={len(request.question)}, "
-        f"user_id={request.userId or 'anonymous'}"
+        f"user_id={request.userId or 'anonymous'}, "
+        f"language={preferred_language}"
     )
 
-    # Retrieve chunks based on mode
+    # Retrieve chunks based on mode with language filtering
+    fallback_applied = False
+
     if request.mode == "whole-book":
-        chunks = await retrieve_chunks_whole_book(
+        chunks, fallback_applied = await retrieve_chunks_whole_book(
             question=request.question,
             limit=config.CHUNK_RETRIEVAL_LIMIT,
+            language=preferred_language,
         )
     else:  # selection mode
         if not request.selectedText or not request.docPath:
@@ -276,11 +492,12 @@ async def answer_chat_request(
                 "mode='selection' requires both selectedText and docPath"
             )
 
-        chunks = await retrieve_chunks_selection(
+        chunks, fallback_applied = await retrieve_chunks_selection(
             question=request.question,
             selected_text=request.selectedText,
             doc_path=request.docPath,
             limit=min(config.CHUNK_RETRIEVAL_LIMIT, 5),  # Smaller limit for selection
+            language=preferred_language,
         )
 
     # Handle case where no chunks were retrieved
@@ -290,6 +507,8 @@ async def answer_chat_request(
             answer="I couldn't find relevant information in the textbook to answer your question. Please try rephrasing or asking a different question.",
             citations=[],
             mode=request.mode,
+            responseLanguage=preferred_language or "en",
+            fallbackApplied=False,
         )
 
     # Build context from chunks
@@ -305,30 +524,53 @@ RELEVANT TEXTBOOK SECTIONS:
     else:
         context = build_context(chunks)
 
-    # Generate answer
+    # Determine response language for LLM
+    # If fallback was applied, we still try to respond in preferred language
+    # but inform the user that content was from English sources
+    response_language: LanguageCode = preferred_language or "en"
+
+    # Generate grounded answer with language support
     try:
         answer = await generate_answer(
             question=request.question,
             context=context,
             chat_model=config.OPENAI_CHAT_MODEL,
+            response_language=response_language,
         )
     except Exception as e:
         logger.error(f"Failed to generate answer: {e}")
         raise
 
-    # Extract citations
+    # Extract citations for API response (structured data)
     citations = extract_citations(chunks, max_citations=5)
 
-    # Build response
+    # Append deterministic sources section to the answer
+    # Sources are extracted from chunk metadata, NOT generated by LLM
+    # This ensures sources are always accurate and traceable
+    sources_section = format_sources_section(chunks, language=response_language)
+    answer_with_sources = answer + sources_section
+
+    # Calculate deterministic confidence based on retrieval signals only
+    # No LLM involvement - purely based on chunk count and fallback status
+    confidence = calculate_confidence(
+        num_chunks=len(chunks),
+        fallback_applied=fallback_applied,
+    )
+
+    # Build response with language metadata and confidence
     response = ChatResponse(
-        answer=answer,
+        answer=answer_with_sources,
         citations=citations,
         mode=request.mode,
+        confidence=confidence,
+        responseLanguage=response_language,
+        fallbackApplied=fallback_applied,
     )
 
     logger.info(
-        f"Chat request completed: answer_len={len(answer)}, "
-        f"citations={len(citations)}"
+        f"Chat request completed: answer_len={len(answer_with_sources)}, "
+        f"citations={len(citations)}, sources={len(sources_section) > 0}, "
+        f"confidence={confidence}, language={response_language}, fallback={fallback_applied}"
     )
 
     return response
