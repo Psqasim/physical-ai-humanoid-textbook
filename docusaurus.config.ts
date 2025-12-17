@@ -120,6 +120,23 @@ const config: Config = {
               label: 'LinkedIn',
               href: 'https://linkedin.com/in/muhammad-qasim',
             },
+            {
+              label: 'Email',
+              href: 'mailto:muhammadqasim0326@gmail.com',
+            },
+          ],
+        },
+        {
+          title: 'Legal',
+          items: [
+            {
+              label: 'Terms & Conditions',
+              to: '/terms',
+            },
+            {
+              label: 'Privacy Policy',
+              to: '/privacy',
+            },
           ],
         },
       ],

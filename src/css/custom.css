@@ -6,11 +6,6 @@
 
 /* You can override the default Infima variables here. */
 :root {
-  /* Responsive breakpoints */
-  --mobile-breakpoint: 768px;
-  --tablet-breakpoint: 1024px;
-
-  /* Color palette */
   --ifm-color-primary: #2e8555;
   --ifm-color-primary-dark: #29784c;
   --ifm-color-primary-darker: #277148;
@@ -18,12 +13,6 @@
   --ifm-color-primary-light: #33925d;
   --ifm-color-primary-lighter: #359962;
   --ifm-color-primary-lightest: #3cad6e;
-
-  /* Spacing */
-  --spacing-sm: 0.5rem;
-  --spacing-md: 1rem;
-  --spacing-lg: 2rem;
-
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }
@@ -41,531 +30,85 @@
 }
 
 /* ==========================================================================
-   Responsive Navigation Styles (Docusaurus Standard: 996px breakpoint)
+   MOBILE-ONLY FIXES (max-width: 996px)
+   Does NOT affect desktop. Docusaurus default behavior preserved.
    ========================================================================== */
 
-/* Mobile: < 996px */
 @media (max-width: 996px) {
-  /* Navbar container */
-  .navbar {
-    padding: 0.5rem 1rem;
-  }
-
-  /* Navbar items - ensure proper wrapping on small screens */
-  .navbar__items {
-    gap: 0.5rem;
-  }
-
-  /* Logo - reduce size on mobile */
-  .navbar__logo {
-    max-height: 2rem;
-  }
-
-  .navbar__title {
-    font-size: 1rem;
-  }
-
-  /* Hide navbar items that don't fit - mobile menu will show them */
-  .navbar__items--right > .navbar__item:not(.navbar__toggle) {
-    display: none;
-  }
-
-  /* Mobile toggle button - ensure visible */
-  .navbar__toggle {
-    display: inherit;
-  }
-
-  /* Mobile sidebar menu */
-  .navbar-sidebar {
-    width: 80vw;
-    max-width: 350px;
-  }
-
-  /* Mobile sidebar items */
-  .navbar-sidebar__items {
-    padding: 1rem;
-  }
-
-  .navbar-sidebar__item {
-    padding: 0.5rem 0;
-  }
-
-  /* Chat button on mobile - make it compact */
-  .navbar__item.chat-button {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.875rem;
-  }
-}
-
-/* Desktop: >= 996px */
-@media (min-width: 996px) {
-  /* Navbar container */
-  .navbar {
-    padding: 0.5rem 1.5rem;
-  }
-
-  /* Navbar items - horizontal layout with spacing */
-  .navbar__items {
-    gap: 1rem;
-  }
-
-  /* Logo - full size on desktop */
-  .navbar__logo {
-    max-height: 2.5rem;
-  }
-
-  .navbar__title {
-    font-size: 1.2rem;
-  }
-
-  /* Show all navbar items on desktop */
-  .navbar__items--right > .navbar__item {
-    display: flex;
-  }
-
-  /* Hide mobile toggle button on desktop */
-  .navbar__toggle {
-    display: none;
-  }
-
-  /* Navbar links - proper spacing */
-  .navbar__link {
-    padding: 0.5rem 1rem;
-  }
-}
-
-/* Tablet-specific adjustments: 768px - 996px */
-@media (min-width: 768px) and (max-width: 996px) {
-  /* Tablet gets mobile layout but with slightly more space */
-  .navbar {
-    padding: 0.5rem 1.25rem;
-  }
-
-  .navbar-sidebar {
-    width: 60vw;
-    max-width: 400px;
-  }
-}
-
-/* ==========================================================================
-   RTL (Right-to-Left) Language Support
-   ========================================================================== */
-
-/* Global RTL settings */
-html[dir="rtl"] {
-  direction: rtl;
-  text-align: right;
-}
-
-/* Ensure body respects RTL */
-html[dir="rtl"] body {
-  direction: rtl;
-}
-
-/* Main container RTL layout */
-html[dir="rtl"] .main-wrapper {
-  direction: rtl;
-}
-
-/* Docusaurus page structure - sidebar on right for RTL */
-html[dir="rtl"] .docPage {
-  direction: rtl;
-}
-
-html[dir="rtl"] .docMainContainer {
-  direction: rtl;
-}
-
-/* Table of Contents - position on left for RTL (opposite of LTR) */
-html[dir="rtl"] .theme-doc-toc-desktop {
-  order: 0;
-}
-
-/* Content wrapper */
-html[dir="rtl"] .theme-doc-markdown {
-  direction: rtl;
-}
-
-/* Pagination - swap prev/next positions */
-html[dir="rtl"] .pagination-nav__link--prev {
-  float: right;
-}
-
-html[dir="rtl"] .pagination-nav__link--next {
-  float: left;
-}
-
-/* Breadcrumbs separator flip */
-html[dir="rtl"] .breadcrumbs__item:not(:last-child)::after {
-  content: '\\';
-  transform: scaleX(-1);
-}
-
-/* Dropdown menu alignment */
-html[dir="rtl"] .dropdown__menu {
-  right: auto;
-  left: 0;
-}
-
-/* ==========================================================================
-   RTL MOBILE NAVBAR FIX (Critical for Urdu hamburger menu)
-
-   ROOT CAUSE: flex-direction: row-reverse breaks click handlers on mobile
-   SOLUTION: Use CSS logical properties instead of reversing flex direction
-   ========================================================================== */
-
-/* RTL Responsive adjustments for mobile (<996px) */
-@media (max-width: 996px) {
-  /*
-   * CRITICAL: DO NOT use flex-direction: row-reverse on navbar!
-   * It breaks click event registration on mobile Safari/Chrome.
-   * Instead, let the browser handle RTL via direction property.
-   */
-  html[dir="rtl"] .navbar {
-    direction: rtl;
-    /* No flex-direction: row-reverse - this was causing the bug */
-  }
-
-  html[dir="rtl"] .navbar__inner {
-    direction: rtl;
-    /* Use logical properties for proper RTL layout */
-  }
-
-  html[dir="rtl"] .navbar__items {
-    direction: rtl;
-  }
-
-  /* CRITICAL FIX: Toggle button (hamburger) for RTL mobile */
-  html[dir="rtl"] .navbar__toggle {
-    /* Ensure clickable - explicit positioning */
-    position: relative !important;
-    z-index: 1001 !important;
-    pointer-events: auto !important;
-    cursor: pointer !important;
-    /* Visual styling */
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    /* Touch target size (WCAG 2.1 minimum: 44px) */
-    min-width: 44px;
-    min-height: 44px;
-    padding: 0.5rem;
-    /* Reset margins to prevent offset */
-    margin: 0 !important;
-    margin-inline-start: 0 !important;
-    margin-inline-end: auto !important;
-    /* Prevent any transform that could offset click target */
-    transform: none !important;
-    /* Isolate stacking context */
-    isolation: isolate;
-  }
-
-  /* Ensure SVG inside toggle is also clickable */
-  html[dir="rtl"] .navbar__toggle svg {
-    pointer-events: none;
-  }
-
-  /* Navbar brand positioning for RTL - use logical properties */
-  html[dir="rtl"] .navbar__brand {
-    margin-inline-start: 0;
-    margin-inline-end: auto;
-  }
-
-  /* Mobile sidebar container - slide from RIGHT for RTL */
-  html[dir="rtl"] .navbar-sidebar {
-    position: fixed !important;
-    top: 0 !important;
-    right: 0 !important;
-    left: auto !important;
-    bottom: 0 !important;
-    width: 80vw !important;
-    max-width: 350px !important;
-    height: 100vh !important;
-    height: 100dvh !important;
-    /* Hidden state: off-screen to the right */
-    transform: translate3d(100%, 0, 0) !important;
-    transition: transform 0.25s ease-out !important;
-    z-index: 200 !important;
-    background: var(--ifm-navbar-background-color) !important;
-    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15) !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch;
-    pointer-events: auto !important;
-    direction: rtl;
-  }
-
-  /* Show sidebar - slide in from right */
-  html[dir="rtl"] .navbar-sidebar--show {
-    transform: translate3d(0, 0, 0) !important;
-  }
-
-  /* Sidebar backdrop - full screen overlay */
-  html[dir="rtl"] .navbar-sidebar__backdrop {
-    position: fixed !important;
-    inset: 0 !important;
-    z-index: 150 !important;
-    background: rgba(0, 0, 0, 0.5) !important;
-    pointer-events: auto !important;
-    cursor: pointer !important;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  /* Sidebar content alignment */
-  html[dir="rtl"] .navbar-sidebar__items {
-    text-align: right;
-    direction: rtl;
-    padding: 1rem;
-  }
-
-  html[dir="rtl"] .navbar-sidebar__item {
-    text-align: right;
-  }
-
-  /* Menu items inside sidebar */
-  html[dir="rtl"] .menu__list {
-    direction: rtl;
-    text-align: right;
-  }
-
-  html[dir="rtl"] .menu__link {
-    text-align: right;
-    padding-inline-start: 0.75rem;
-    padding-inline-end: 0.75rem;
-  }
-
-  /* Close button in sidebar - position on LEFT for RTL */
-  html[dir="rtl"] .navbar-sidebar__close {
-    position: absolute !important;
-    top: 0.5rem !important;
-    left: 0.5rem !important;
-    right: auto !important;
-    z-index: 10 !important;
-    /* Ensure clickable */
-    pointer-events: auto !important;
-    cursor: pointer !important;
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  /* Navbar items container - use logical properties */
-  html[dir="rtl"] .navbar__items--right {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-inline-start: 0;
-    margin-inline-end: auto;
-  }
-}
-
-@media (min-width: 996px) {
-  html[dir="rtl"] .navbar__items--right {
-    margin-right: auto;
-    margin-left: 0;
-  }
-
-  html[dir="rtl"] .navbar__items--left {
-    margin-left: auto;
-    margin-right: 0;
-  }
-}
-
-/* Fix for inline code direction */
-html[dir="rtl"] :not(pre) > code {
-  direction: ltr;
-  unicode-bidi: embed;
-}
-
-/* Ensure proper spacing for RTL */
-html[dir="rtl"] .margin-left--md {
-  margin-left: 0;
-  margin-right: 1rem;
-}
-
-html[dir="rtl"] .margin-right--md {
-  margin-right: 0;
-  margin-left: 1rem;
-}
-
-html[dir="rtl"] .padding-left--md {
-  padding-left: 0;
-  padding-right: 1rem;
-}
-
-html[dir="rtl"] .padding-right--md {
-  padding-right: 0;
-  padding-left: 1rem;
-}
-
-/* ==========================================================================
-   GLOBAL MOBILE OVERFLOW & RESPONSIVENESS FIXES
-   Prevents horizontal scrolling on mobile devices
-   ========================================================================== */
-
-/* Base overflow prevention */
-html,
-body {
-  overflow-x: hidden;
-  max-width: 100vw;
-}
-
-/* Prevent horizontal overflow on main content */
-.main-wrapper,
-main,
-.container,
-.row {
-  max-width: 100%;
-  overflow-x: hidden;
-}
-
-/* Mobile-specific overflow fixes */
-@media (max-width: 996px) {
-  /* Ensure no horizontal scroll on any page */
-  html {
+  /* Prevent horizontal scroll on mobile */
+  html, body {
     overflow-x: hidden;
-    scroll-behavior: smooth;
   }
 
-  body {
+  /* Content overflow containment */
+  .main-wrapper,
+  main,
+  article {
+    max-width: 100vw;
     overflow-x: hidden;
-    position: relative;
-    width: 100%;
   }
 
-  /* Main wrapper containment */
-  .main-wrapper {
-    overflow-x: hidden;
-    width: 100%;
-  }
-
-  /* Prevent content from causing overflow */
-  main {
-    overflow-x: hidden;
-    width: 100%;
-  }
-
-  /* Doc pages - prevent sidebar overflow */
-  .docPage,
-  .docMainContainer {
-    overflow-x: hidden;
-    width: 100%;
-  }
-
-  /* Tables - make scrollable instead of overflowing page */
+  /* Tables scroll horizontally within container */
   table {
     display: block;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
     max-width: 100%;
   }
 
-  /* Code blocks - scrollable container */
+  /* Code blocks scroll horizontally */
   pre {
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
     max-width: 100%;
   }
 
-  /* Images - responsive by default */
+  /* Images fit viewport */
   img {
     max-width: 100%;
     height: auto;
   }
 
-  /* Prevent any element from breaking layout */
-  * {
-    max-width: 100vw;
-  }
-
-  /* Fix for iframes (videos, embeds) */
+  /* Iframes fit viewport */
   iframe {
     max-width: 100%;
   }
 }
 
 /* ==========================================================================
-   TOUCH & SCROLL BEHAVIOR IMPROVEMENTS
-   Better UX on touch devices
+   RTL (Right-to-Left) Basic Support
+   Docusaurus handles RTL automatically via html[dir="rtl"]
+   Only minimal overrides for content alignment
    ========================================================================== */
 
-@media (max-width: 996px) {
-  /* Smooth scrolling for better mobile UX */
-  html {
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* Prevent text selection during scroll */
-  .navbar,
-  .navbar-sidebar {
-    -webkit-user-select: none;
-    user-select: none;
-  }
-
-  /* Touch-friendly tap targets (WCAG 2.1) */
-  .navbar__link,
-  .menu__link,
-  .button,
-  a[class*="button"] {
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  /* Remove tap highlight on mobile */
-  a,
-  button,
-  .navbar__toggle,
-  .navbar__link,
-  .menu__link {
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  /* Better active states for touch */
-  .navbar__link:active,
-  .menu__link:active,
-  .button:active {
-    opacity: 0.8;
-  }
+/* Content text alignment for RTL */
+html[dir="rtl"] .theme-doc-markdown,
+html[dir="rtl"] article {
+  text-align: right;
 }
 
-/* ==========================================================================
-   RTL + MOBILE COMBINED FIXES
-   Additional fixes when both RTL and mobile are active
-   ========================================================================== */
-
-@media (max-width: 996px) {
-  /* RTL overflow prevention */
-  html[dir="rtl"] body,
-  html[dir="rtl"] .main-wrapper,
-  html[dir="rtl"] main {
-    overflow-x: hidden;
-    width: 100%;
-  }
-
-  /* RTL table scrolling - scroll from right */
-  html[dir="rtl"] table {
-    direction: rtl;
-  }
-
-  /* RTL code blocks - keep LTR but scrollable */
-  html[dir="rtl"] pre {
-    direction: ltr;
-    text-align: left;
-  }
+/* Lists padding swap for RTL */
+html[dir="rtl"] ul,
+html[dir="rtl"] ol {
+  padding-right: 2rem;
+  padding-left: 0;
 }
 
-/* ==========================================================================
-   SAFE AREA INSETS (for notched devices like iPhone X+)
-   ========================================================================== */
+/* Blockquote border swap for RTL */
+html[dir="rtl"] blockquote {
+  border-left: none;
+  border-right: 4px solid var(--ifm-color-emphasis-300);
+  padding-right: 1rem;
+  padding-left: 0;
+}
 
-@supports (padding: max(0px)) {
-  .navbar {
-    padding-left: max(1rem, env(safe-area-inset-left));
-    padding-right: max(1rem, env(safe-area-inset-right));
-  }
+/* Code blocks always LTR */
+html[dir="rtl"] pre,
+html[dir="rtl"] code {
+  direction: ltr;
+  text-align: left;
+}
 
-  @media (max-width: 996px) {
-    .navbar-sidebar {
-      padding-bottom: max(1rem, env(safe-area-inset-bottom));
-    }
-  }
+/* Inline code embedding */
+html[dir="rtl"] :not(pre) > code {
+  direction: ltr;
+  unicode-bidi: embed;
 }
