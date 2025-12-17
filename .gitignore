@@ -27,4 +27,9 @@ backend/**/__pycache__/
 backend/.pytest_cache/
 backend/**/.pytest_cache/
 backend/dist/
-backend/*.egg-info
+backend/*.egg-infocle
+
+# Python
+venv/
+__pycache__/
+*.pyc

@@ -142,10 +142,10 @@ Each story is independently testable and deliverable.
 - [X] T037 [P] [US3] Implement confidence threshold logic in i18n.py: return detected language if confidence ≥0.5, else fallback
 - [X] T038 [P] [US3] Create `backend/app/api/language.py` with `/api/detect-language` POST endpoint
 - [X] T039 [P] [US3] Implement LanguageDetectionRequest/Result Pydantic models in backend/app/api/language.py
-- [ ] T040 [US3] Update `backend/app/api/chat.py` to accept `preferredLanguage` parameter in ChatRequest model
-- [ ] T041 [US3] Integrate language detection in chat endpoint: call `detect_language()` on incoming message
-- [ ] T042 [US3] Add language metadata to chat response: `responseLanguage`, `detectedInputLanguage`, `fallbackApplied` fields
-- [ ] T043 [US3] Update OpenAI system prompt template to include "Reply in {detected_language}" instruction
+- [X] T040 [US3] Update `backend/app/api/chat.py` to accept `preferredLanguage` parameter in ChatRequest model
+- [X] T041 [US3] Integrate language detection in chat endpoint: call `detect_language()` on incoming message
+- [X] T042 [US3] Add language metadata to chat response: `responseLanguage`, `detectedInputLanguage`, `fallbackApplied` fields
+- [X] T043 [US3] Update OpenAI system prompt template to include "Reply in {detected_language}" instruction
 - [X] T044 [US3] Update `backend/app/main.py` to include language router: `app.include_router(language.router, prefix="/api", tags=["language"])`
 - [ ] T045 [US3] Test detection endpoint with Urdu text: `curl -X POST /api/detect-language -d '{"text": "ROS 2 کیا ہے؟"}'` → verify `detectedLanguage: "ur"`
 - [ ] T046 [US3] Test detection endpoint with Japanese text: verify `detectedLanguage: "ja"`

@@ -550,6 +550,14 @@
   outline-offset: 2px;
 }
 
+/* Input Actions Container - Voice + Send buttons */
+.inputActions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 /* ============================================
    RESPONSIVE BREAKPOINTS - Mobile First
    ============================================ */
@@ -723,6 +731,49 @@ select:focus-visible {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* ============================================
+   RTL SUPPORT FOR URDU LANGUAGE
+   ============================================ */
+
+/* Apply RTL to message text when document direction is RTL */
+:global([dir="rtl"]) .messageText {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Flip user message alignment for RTL */
+:global([dir="rtl"]) .userMessage {
+  align-self: flex-start; /* Flip from flex-end to flex-start */
+  border-left: none;
+  border-right: 4px solid var(--ifm-color-primary, #0066cc);
+  border-radius: 12px 12px 12px 0; /* Flip corner radius */
+}
+
+/* Flip assistant message alignment for RTL */
+:global([dir="rtl"]) .assistantMessage {
+  align-self: flex-end; /* Flip from flex-start to flex-end */
+  border-radius: 12px 12px 0 12px; /* Flip corner radius */
+}
+
+/* RTL support for input area */
+:global([dir="rtl"]) .input {
+  direction: rtl;
+  text-align: right;
+}
+
+/* RTL support for selected text context */
+:global([dir="rtl"]) .selectedTextContext {
+  border-left: none;
+  border-right: 4px solid var(--ifm-color-primary, #0066cc);
+  direction: rtl;
+  text-align: right;
+}
+
+:global([dir="rtl"]) .contextText {
+  direction: rtl;
+  text-align: right;
 }
 
 /* ============================================
