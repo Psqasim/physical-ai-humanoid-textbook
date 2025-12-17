@@ -258,12 +258,16 @@ async def create_payload_indexes(
     - doc_path (KEYWORD): For selection-based Q&A filtering
     - chunk_index (INTEGER): For ordering chunks within a document
     - module_id (KEYWORD): For module-specific filtering
+    - language (KEYWORD): For multilingual filtering
+
+    This function is IDEMPOTENT and safe to call multiple times.
+    If an index already exists, it will be silently skipped.
 
     Args:
         collection_name: Name of collection (defaults to settings.QDRANT_COLLECTION_NAME)
 
     Raises:
-        Exception: If index creation fails
+        Exception: If index creation fails for reasons other than already existing
 
     Example:
         await create_payload_indexes()
@@ -271,33 +275,30 @@ async def create_payload_indexes(
     client = get_qdrant_client()
     collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
 
-    # Create doc_path index (KEYWORD for exact matching)
-    await client.create_payload_index(
-        collection_name=collection_name,
-        field_name="doc_path",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
+    # Define all indexes to create
+    indexes = [
+        ("doc_path", PayloadSchemaType.KEYWORD),
+        ("chunk_index", PayloadSchemaType.INTEGER),
+        ("module_id", PayloadSchemaType.KEYWORD),
+        ("language", PayloadSchemaType.KEYWORD),
+    ]
 
-    # Create chunk_index index (INTEGER for numeric operations)
-    await client.create_payload_index(
-        collection_name=collection_name,
-        field_name="chunk_index",
-        field_schema=PayloadSchemaType.INTEGER,
-    )
-
-    # Create module_id index (KEYWORD for exact matching)
-    await client.create_payload_index(
-        collection_name=collection_name,
-        field_name="module_id",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
-
-    # Create language index (KEYWORD for exact matching)
-    await client.create_payload_index(
-        collection_name=collection_name,
-        field_name="language",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
+    # Create each index, ignoring errors if index already exists
+    for field_name, field_schema in indexes:
+        try:
+            await client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=field_schema,
+            )
+        except Exception as e:
+            # Silently skip if index already exists
+            # Qdrant returns a validation error when index exists
+            error_msg = str(e).lower()
+            if "already exists" in error_msg or "bad input" in error_msg:
+                continue
+            # Re-raise if it's a different error
+            raise
 
 
 async def upsert_embeddings(

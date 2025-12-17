@@ -5,11 +5,34 @@ This module creates and configures the FastAPI application instance,
 sets up CORS middleware, and includes API routers.
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api import health, chat, language, voice
+from app.services.qdrant import create_payload_indexes
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+
+    Startup:
+        - Ensures Qdrant payload indexes exist for filtering
+    """
+    # Startup: Ensure payload indexes exist (idempotent)
+    try:
+        await create_payload_indexes()
+    except Exception as e:
+        # Log error but don't crash the app
+        print(f"Warning: Failed to create payload indexes: {e}")
+
+    yield
+
+    # Shutdown: cleanup if needed
+    pass
 
 
 def create_app() -> FastAPI:
@@ -23,6 +46,7 @@ def create_app() -> FastAPI:
         title="Physical AI Study Assistant API",
         description="RAG-powered backend for Physical AI & Humanoid Robotics textbook",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     # Configure CORS middleware
