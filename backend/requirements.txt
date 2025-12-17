@@ -12,3 +12,4 @@ psycopg2-binary==2.9.10
 langdetect==1.0.9
 tiktoken==0.8.0
 python-frontmatter==1.1.0
+python-multipart
