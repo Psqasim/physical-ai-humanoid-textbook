@@ -129,19 +129,26 @@ html[dir="rtl"] .pagination-nav__item--next {
    2. Navigation - RTL Support with Sidebar on Right
    ========================================================================== */
 
-/* Navbar - Keep LTR for navigation items but support RTL layout */
+/* Navbar - RTL layout with proper direction inheritance */
 html[dir="rtl"] .navbar,
 html[dir="rtl"] .navbar__inner {
   direction: rtl;
 }
 
+/*
+ * CRITICAL: Do NOT set direction: ltr on navbar__items in RTL mode!
+ * This was causing the hamburger menu to fail on mobile.
+ * The navbar items inherit RTL direction from parent and display correctly.
+ */
 html[dir="rtl"] .navbar__items {
-  direction: ltr;
+  direction: inherit;
 }
 
+/* Individual items can use LTR for English text display if needed */
 html[dir="rtl"] .navbar__item,
 html[dir="rtl"] .navbar__link {
-  direction: ltr;
+  /* Use unicode-bidi for mixed content instead of direction */
+  unicode-bidi: plaintext;
 }
 
 /* Sidebar - Move to right side for RTL */
